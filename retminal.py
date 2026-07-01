@@ -300,6 +300,10 @@ class Retminal:
         self.running = False
         self.proc = None
         self._maximized = False
+        self._fullscreen = False
+        self._fs_old_geom = None
+        self._copy_start = 0
+        self._copy_last = (0, 0)
         self._restoring = False
         self.connected = False
         self.ssh = None
@@ -429,6 +433,12 @@ class Retminal:
             "services": self.cmd_services,
             "convos": self.cmd_convos,
             "conversations": self.cmd_convos,
+            "plein": self.cmd_plein,
+            "fullscreen": self.cmd_plein,
+            "copy": self.cmd_copy,
+            "copier": self.cmd_copy,
+            "clean": self.cmd_clean,
+            "nettoyer": self.cmd_clean,
             "ask": self.cmd_ask,
             "demande": self.cmd_ask,
             "explique": self.cmd_explique,
@@ -553,12 +563,129 @@ class Retminal:
 
     def _round_corners(self):
         try:
-            pref = ctypes.c_int(2)
+            pref = ctypes.c_int(1 if self._fullscreen else 2)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 self._hwnd(), 33, ctypes.byref(pref), ctypes.sizeof(pref)
             )
         except Exception:
             pass
+
+    def _fullscreen_geom(self):
+        try:
+            from ctypes import wintypes
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD),
+                    ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT),
+                    ("dwFlags", wintypes.DWORD),
+                ]
+
+            hmon = ctypes.windll.user32.MonitorFromWindow(self._hwnd(), 2)
+            mi = MONITORINFO()
+            mi.cbSize = ctypes.sizeof(MONITORINFO)
+            ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
+            m = mi.rcMonitor
+            return m.right - m.left, m.bottom - m.top, m.left, m.top
+        except Exception:
+            return self.root.winfo_screenwidth(), self.root.winfo_screenheight(), 0, 0
+
+    def _toggle_fullscreen(self, event=None):
+        if self._fullscreen:
+            self._fullscreen = False
+            if self._fs_old_geom:
+                self.root.geometry(self._fs_old_geom)
+        else:
+            self._fs_old_geom = self.root.geometry()
+            self._fullscreen = True
+            w, h, x, y = self._fullscreen_geom()
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+        self.root.after(10, self._round_corners)
+        return "break"
+
+    def cmd_plein(self, cmd):
+        self._toggle_fullscreen()
+        etat = "ACTIVE" if self._fullscreen else "coupe"
+        self._insert(
+            "  Plein ecran " + etat + "   (F11 ou Echap pour basculer)\n", "cyan"
+        )
+        self._write_prompt()
+
+    def cmd_copy(self, cmd):
+        start, end = getattr(self, "_copy_last", (0, 0))
+        n = len(self.buffer)
+        start = max(0, min(start, n))
+        end = max(start, min(end, n))
+        text = "".join(seg for seg, _tag in self.buffer[start:end]).strip("\n")
+        if not text.strip():
+            self._insert("  (rien a copier — lance une commande d'abord)\n", "dim")
+            self._write_prompt()
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.root.update()
+            nl = len(text.splitlines())
+            self._insert(
+                "  Copie ! " + str(nl) + " ligne(s) dans le presse-papier (Ctrl+V pour coller).\n",
+                "cyan",
+            )
+        except Exception as e:
+            self._insert("  [!] " + str(e) + "\n", "err")
+        self._write_prompt()
+
+    def cmd_clean(self, cmd):
+        import tempfile
+        self._insert("  Nettoyage des fichiers temporaires de ton PC...\n", "cyan")
+        self.running = True
+        buf = self.buffer
+        threading.Thread(
+            target=self._clean_worker, args=(buf, tempfile.gettempdir()), daemon=True
+        ).start()
+
+    def _clean_worker(self, buf, tmp):
+        import shutil
+        freed = ndel = nskip = 0
+        try:
+            for name in os.listdir(tmp):
+                p = os.path.join(tmp, name)
+                try:
+                    sz = self._path_size(p)
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        os.remove(p)
+                    if not os.path.exists(p):
+                        freed += sz
+                        ndel += 1
+                    else:
+                        nskip += 1
+                except Exception:
+                    nskip += 1
+        except Exception as e:
+            self.root.after(0, self._out_line, buf, "  [!] " + str(e) + "\n", "err")
+        msg = ("  Nettoye ! " + self._human_size(freed) + " liberes  ·  "
+               + str(ndel) + " element(s) supprime(s)")
+        if nskip:
+            msg += "  ·  " + str(nskip) + " en cours d'usage (gardes)"
+        self.root.after(0, self._out_line, buf, msg + "\n", "bright")
+        self.root.after(0, self._cmd_done, buf, None, None)
+
+    def _path_size(self, p):
+        try:
+            if os.path.isfile(p) or os.path.islink(p):
+                return os.path.getsize(p)
+            total = 0
+            for base, _dirs, files in os.walk(p):
+                for f in files:
+                    try:
+                        total += os.path.getsize(os.path.join(base, f))
+                    except Exception:
+                        pass
+            return total
+        except Exception:
+            return 0
 
     def _maximize_geom(self):
         try:
@@ -866,6 +993,8 @@ class Retminal:
         self.input_entry.bind("<Control-v>", self._on_paste)
         self.input_entry.bind("<Control-V>", self._on_paste)
         self.input_entry.bind("<Button-3>", lambda e: self._edit_menu(e, self.input_entry))
+        self.root.bind("<F11>", self._toggle_fullscreen)
+        self.input_entry.bind("<F11>", self._toggle_fullscreen)
         self.root.bind("<Control-t>", lambda e: self._new_tab())
         self.root.bind("<Control-w>", lambda e: self._close_tab(self._active))
         self.root.bind("<Control-Tab>", lambda e: self._cycle_tab(1))
@@ -1423,9 +1552,11 @@ class Retminal:
             pass
 
     def _echo_prompt_command(self, cmd):
+        self._copy_last = (getattr(self, "_copy_start", 0), len(self.buffer))
         for seg, tag in self._prompt_segments():
             self._insert(seg, tag)
         self._insert(cmd + "\n", "out")
+        self._copy_start = len(self.buffer)
 
     def _on_submit(self, event=None):
         if self._sysmon_on:
@@ -2097,7 +2228,8 @@ class Retminal:
                 "logs", "editvps", "moniteur", "monitor",
                 "explore", "fichiers", "backup", "services",
                 "convos", "conversations", "ask", "demande",
-                "explique", "resume",
+                "explique", "resume", "plein", "fullscreen",
+                "copy", "copier", "clean", "nettoyer",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -2826,6 +2958,9 @@ class Retminal:
             ("run <app>", "lance une appli de ton PC (ex: run notepad)"),
             ("qui", "qui est connecte sur ton serveur (une fois connecte)"),
             ("rename <nom>", "renomme l'onglet (ou double-clic sur l'onglet)"),
+            ("plein", "plein ecran (aussi la touche F11) — F11/Echap pour sortir"),
+            ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
+            ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
             ("note / notes", "ecris un pense-bete / vois tes notes"),
             ("fav / favs", "commandes favorites (fav add ..., fav 1)"),
@@ -6834,7 +6969,10 @@ class Retminal:
                 return "break"
             self._sysmon_stop()
             return "break"
+        had_sugg = self._sg_shown
         self._hide_suggestions()
+        if self._fullscreen and not had_sugg:
+            self._toggle_fullscreen()
         return "break"
 
     def _menu(self):
