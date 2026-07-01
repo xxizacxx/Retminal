@@ -30,7 +30,48 @@ DOT_RED = "#ff5f56"
 DOT_YELLOW = "#ffbd2e"
 DOT_GREEN = "#27c93f"
 
-MONO = "Menlo" if IS_MAC else "Consolas"
+def _register_bundled_font():
+    # Sur Mac, enregistre DejaVu Sans Mono (embarquee) DANS le process via CoreText.
+    # DejaVu dessine les cadres (│ ─ ┌ ┘...) SANS aucun trou, contrairement a Menlo.
+    # Ses metriques (taille 12 : largeur 10px, interligne 19px) sont identiques a
+    # Menlo, donc la mascotte et STRIP_H restent valables. Retourne le nom de famille
+    # si OK, sinon None (on retombe alors sur Menlo).
+    if not IS_MAC:
+        return None
+    try:
+        if getattr(sys, "frozen", False):
+            base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base, "fonts", "DejaVuSansMono.ttf")
+        if not os.path.isfile(path):
+            return None
+        import ctypes
+        from ctypes import util, c_void_p, c_int32, c_bool
+
+        cf = ctypes.cdll.LoadLibrary(util.find_library("CoreFoundation"))
+        ct = ctypes.cdll.LoadLibrary(util.find_library("CoreText"))
+        cf.CFStringCreateWithCString.restype = c_void_p
+        cf.CFStringCreateWithCString.argtypes = [c_void_p, ctypes.c_char_p, c_int32]
+        s = cf.CFStringCreateWithCString(None, path.encode("utf-8"), 0x08000100)
+        cf.CFURLCreateWithFileSystemPath.restype = c_void_p
+        cf.CFURLCreateWithFileSystemPath.argtypes = [c_void_p, c_void_p, c_int32, c_bool]
+        url = cf.CFURLCreateWithFileSystemPath(None, s, 0, False)
+        ct.CTFontManagerRegisterFontsForURL.restype = c_bool
+        ct.CTFontManagerRegisterFontsForURL.argtypes = [c_void_p, c_int32, c_void_p]
+        if ct.CTFontManagerRegisterFontsForURL(url, 1, None):  # 1 = scope process
+            return "DejaVu Sans Mono"
+    except Exception:
+        pass
+    return None
+
+
+_MAC_FONT = _register_bundled_font()
+MONO = (_MAC_FONT or "Menlo") if IS_MAC else "Consolas"
+# Hauteur d'une bande de mascotte = interligne du header (taille 12). DejaVu/Menlo
+# (Mac) et Consolas (Windows) font tous 19px. Doit matcher l'interligne sinon le bord
+# droit du cadre a des trous sur les lignes de la mascotte.
+STRIP_H = 19
 
 CLAWD_HEX = "#d8825f"
 VERSION = "V 6.7 (Ultra)"
@@ -340,16 +381,6 @@ class Retminal:
         self.running = False
         self.proc = None
         self._maximized = False
-        self._fullscreen = False
-        self._fs_old_geom = None
-        self._copy_start = 0
-        self._copy_last = (0, 0)
-        self.pal = None
-        self._pal_items = []
-        self._pal_sel = 0
-        self._pal_filter = "tout"
-        self._pal_query = ""
-        self._pal_linemap = {}
         self._restoring = False
         self.connected = False
         self.ssh = None
@@ -386,10 +417,6 @@ class Retminal:
         self.claude_mode = False
         self.theme = THEME_GREEN
         self._claude_session = None
-        self._cv_list = []
-        self._cv_sel = 0
-        self._cv_msg = ""
-        self._cv_confirm = None
         self._claude_thinking = False
         self._claude_dots = 0
         self._claude_full_power = True
@@ -479,13 +506,6 @@ class Retminal:
             "services": self.cmd_services,
             "convos": self.cmd_convos,
             "conversations": self.cmd_convos,
-            "plein": self.cmd_plein,
-            "fullscreen": self.cmd_plein,
-            "palette": self.cmd_palette,
-            "copy": self.cmd_copy,
-            "copier": self.cmd_copy,
-            "clean": self.cmd_clean,
-            "nettoyer": self.cmd_clean,
             "ask": self.cmd_ask,
             "demande": self.cmd_ask,
             "explique": self.cmd_explique,
@@ -535,6 +555,8 @@ class Retminal:
         self._update_status()
         self.input_entry.focus_set()
         self.root.after(80, self._init_win32)
+        if IS_MAC:
+            self.root.after(120, self._mac_grab_focus)
         threading.Thread(target=self._scan_local_commands, daemon=True).start()
 
     def _detect_encoding(self):
@@ -595,6 +617,30 @@ class Retminal:
     def _hwnd(self):
         return ctypes.windll.user32.GetAncestor(self.root.winfo_id(), 2)
 
+    def _set_titlebar(self, text):
+        # Met a jour la barre maison (cachee sur Mac) ET, sur Mac, le titre de la
+        # vraie fenetre macOS pour que l'info de contexte reste visible.
+        try:
+            self.title_label.config(text=text)
+        except Exception:
+            pass
+        if IS_MAC:
+            try:
+                self.root.title(text)
+            except Exception:
+                pass
+
+    def _mac_grab_focus(self):
+        # Met la fenetre devant et lui donne le focus clavier au demarrage.
+        try:
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(200, lambda: self.root.attributes("-topmost", False))
+            self.root.focus_force()
+            self.input_entry.focus_set()
+        except Exception:
+            pass
+
     def _init_win32(self):
         if not IS_WIN:
             return
@@ -614,132 +660,12 @@ class Retminal:
 
     def _round_corners(self):
         try:
-            pref = ctypes.c_int(1 if self._fullscreen else 2)
+            pref = ctypes.c_int(2)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 self._hwnd(), 33, ctypes.byref(pref), ctypes.sizeof(pref)
             )
         except Exception:
             pass
-
-    def _fullscreen_geom(self):
-        try:
-            from ctypes import wintypes
-
-            class MONITORINFO(ctypes.Structure):
-                _fields_ = [
-                    ("cbSize", wintypes.DWORD),
-                    ("rcMonitor", wintypes.RECT),
-                    ("rcWork", wintypes.RECT),
-                    ("dwFlags", wintypes.DWORD),
-                ]
-
-            hmon = ctypes.windll.user32.MonitorFromWindow(self._hwnd(), 2)
-            mi = MONITORINFO()
-            mi.cbSize = ctypes.sizeof(MONITORINFO)
-            ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
-            m = mi.rcMonitor
-            return m.right - m.left, m.bottom - m.top, m.left, m.top
-        except Exception:
-            return self.root.winfo_screenwidth(), self.root.winfo_screenheight(), 0, 0
-
-    def _toggle_fullscreen(self, event=None):
-        if self._fullscreen:
-            self._fullscreen = False
-            if self._fs_old_geom:
-                self.root.geometry(self._fs_old_geom)
-        else:
-            self._fs_old_geom = self.root.geometry()
-            self._fullscreen = True
-            w, h, x, y = self._fullscreen_geom()
-            self.root.geometry(f"{w}x{h}+{x}+{y}")
-        self.root.after(10, self._round_corners)
-        return "break"
-
-    def cmd_plein(self, cmd):
-        self._toggle_fullscreen()
-        etat = "ACTIVE" if self._fullscreen else "coupe"
-        self._insert(
-            "  Plein ecran " + etat + "   (F11 ou Echap pour basculer)\n", "cyan"
-        )
-        self._write_prompt()
-
-    def cmd_palette(self, cmd):
-        self._open_palette()
-
-    def cmd_copy(self, cmd):
-        start, end = getattr(self, "_copy_last", (0, 0))
-        n = len(self.buffer)
-        start = max(0, min(start, n))
-        end = max(start, min(end, n))
-        text = "".join(seg for seg, _tag in self.buffer[start:end]).strip("\n")
-        if not text.strip():
-            self._insert("  (rien a copier — lance une commande d'abord)\n", "dim")
-            self._write_prompt()
-            return
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(text)
-            self.root.update()
-            nl = len(text.splitlines())
-            self._insert(
-                "  Copie ! " + str(nl) + " ligne(s) dans le presse-papier (Ctrl+V pour coller).\n",
-                "cyan",
-            )
-        except Exception as e:
-            self._insert("  [!] " + str(e) + "\n", "err")
-        self._write_prompt()
-
-    def cmd_clean(self, cmd):
-        import tempfile
-        self._insert("  Nettoyage des fichiers temporaires de ton PC...\n", "cyan")
-        self.running = True
-        buf = self.buffer
-        threading.Thread(
-            target=self._clean_worker, args=(buf, tempfile.gettempdir()), daemon=True
-        ).start()
-
-    def _clean_worker(self, buf, tmp):
-        import shutil
-        freed = ndel = nskip = 0
-        try:
-            for name in os.listdir(tmp):
-                p = os.path.join(tmp, name)
-                try:
-                    sz = self._path_size(p)
-                    if os.path.isdir(p) and not os.path.islink(p):
-                        shutil.rmtree(p, ignore_errors=True)
-                    else:
-                        os.remove(p)
-                    if not os.path.exists(p):
-                        freed += sz
-                        ndel += 1
-                    else:
-                        nskip += 1
-                except Exception:
-                    nskip += 1
-        except Exception as e:
-            self.root.after(0, self._out_line, buf, "  [!] " + str(e) + "\n", "err")
-        msg = ("  Nettoye ! " + self._human_size(freed) + " liberes  ·  "
-               + str(ndel) + " element(s) supprime(s)")
-        if nskip:
-            msg += "  ·  " + str(nskip) + " en cours d'usage (gardes)"
-        self.root.after(0, self._out_line, buf, msg + "\n", "bright")
-        self.root.after(0, self._cmd_done, buf, None, None)
-
-    def _path_size(self, p):
-        try:
-            if os.path.isfile(p) or os.path.islink(p):
-                return os.path.getsize(p)
-            total = 0
-            for base, _dirs, files in os.walk(p):
-                for f in files:
-                    try:
-                        total += os.path.getsize(os.path.join(base, f))
-                    except Exception:
-                        pass
-            return total
-        except Exception:
-            return 0
 
     def _maximize_geom(self):
         try:
@@ -772,7 +698,13 @@ class Retminal:
 
     def _build_ui(self):
         self.root.configure(bg=BG)
-        self.root.overrideredirect(True)
+        # overrideredirect(True) = fenetre sans bordure (look maison comme Windows).
+        # Sur macOS, Tk ne sait PAS retirer la barre de titre native de maniere
+        # fiable -> on aurait "deux contours" (barre native + barre maison). Donc
+        # sur Mac on garde la fenetre native et on CACHE la barre maison (plus bas),
+        # son texte est recopie dans le titre de la fenetre native (_set_titlebar).
+        if not IS_MAC:
+            self.root.overrideredirect(True)
         self.root.minsize(460, 280)
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -781,15 +713,26 @@ class Retminal:
         y = (sh - h) // 3
         self.root.geometry(f"{w}x{h}+{x}+{y}")
         self.root.bind("<Map>", self._on_map)
+        # Sur Mac, la croix rouge NATIVE ferme la fenetre -> on la branche sur le
+        # nettoyage propre (fermeture des connexions SSH, processus enfants...).
+        self.root.protocol("WM_DELETE_WINDOW", self._shutdown)
 
+        # Sur Mac, la fenetre native a deja son cadre -> pas de contour maison
+        # (sinon une fine bordure blanche/grise apparait au focus). Sur Windows
+        # (fenetre sans bordure) on garde le contour de 1px.
+        _bd = 0 if IS_MAC else 1
         container = tk.Frame(
-            self.root, bg=BG, highlightbackground=BORDER, highlightthickness=1
+            self.root, bg=BG, highlightbackground=BORDER,
+            highlightcolor=BORDER, highlightthickness=_bd,
         )
         container.pack(fill="both", expand=True)
         self.container = container
 
         bar = tk.Frame(container, bg=BG_BAR, height=34)
-        bar.pack(fill="x", side="top")
+        # Sur Mac la barre de titre maison ferait doublon avec celle de macOS :
+        # on la cree (pour ne rien casser) mais on ne l'affiche PAS.
+        if not IS_MAC:
+            bar.pack(fill="x", side="top")
         bar.pack_propagate(False)
         self.bar = bar
 
@@ -814,8 +757,23 @@ class Retminal:
         self.tab_bar.pack(fill="x", side="top")
         self.tab_bar.pack_propagate(False)
 
+        # Cadre GRAPHIQUE (rectangle 1px pixel-perfect) autour de la zone logo, au
+        # lieu de caracteres ┌─┐│└┘ (qui ont 1px de jeu a cause du rendu de police).
+        # Le titre est un Label pose sur le bord haut (look "legende de cadre").
+        self.logo_box = tk.Frame(
+            container, bg=BG, highlightthickness=1,
+            highlightbackground=FG_BRIGHT, highlightcolor=FG_BRIGHT,
+        )
+        self.logo_box.pack(side="top", fill="x", padx=12, pady=(12, 4))
+        # Le titre est enfant de `container` (PAS de logo_box) pour ne pas etre coupe
+        # par le bord du cadre ; place() avec in_=logo_box le pose sur le bord haut.
+        self.logo_title = tk.Label(
+            container, bg=BG, fg=FG_BRIGHT, font=(MONO, 12, "bold"),
+            text="Retminal " + VERSION, padx=6,
+        )
+        self.logo_title.place(in_=self.logo_box, x=16, y=1, anchor="w")
         self.header = tk.Text(
-            container,
+            self.logo_box,
             bg=BG,
             fg=FG,
             insertwidth=0,
@@ -823,9 +781,9 @@ class Retminal:
             bd=0,
             highlightthickness=0,
             wrap="none",
-            padx=14,
-            pady=8,
-            height=7,
+            padx=12,
+            pady=10,
+            height=6,
             takefocus=0,
         )
         for _n, _c in (
@@ -839,6 +797,10 @@ class Retminal:
             "orangebold", foreground=CLAWD_HEX, font=(MONO, 12, "bold")
         )
         self.header.pack(side="top", fill="x")
+        # tag des caracteres de bordure : INVISIBLE (couleur = fond). Le contenu/
+        # alignement reste identique, mais c'est le cadre graphique (logo_box) qui
+        # dessine la vraie bordure. La couleur suit le fond via _apply_theme.
+        self.header.tag_config("boxhide", foreground=BG)
         self.header.bind("<Key>", lambda e: "break")
         self.header.bind("<MouseWheel>", lambda e: "break")
         self.header.bind("<Configure>", self._on_header_configure)
@@ -1031,7 +993,11 @@ class Retminal:
         self.input_entry.bind("<Down>", self._on_down)
         self.input_entry.bind("<Control-c>", self._on_ctrl_c)
         self.input_entry.bind("<Shift-Tab>", self._cycle_target)
-        self.input_entry.bind("<Shift-ISO_Left_Tab>", self._cycle_target)
+        try:
+            # keysym present uniquement sous Linux/X11, absent sur macOS
+            self.input_entry.bind("<Shift-ISO_Left_Tab>", self._cycle_target)
+        except tk.TclError:
+            pass
         self.input_entry.bind("<Control-ugrave>", self._cycle_shell)
         self.input_entry.bind("<Control-d>", self._on_ctrl_d)
         self.input_entry.bind("<Control-Return>", self._editor_key_nextline)
@@ -1048,12 +1014,6 @@ class Retminal:
         self.input_entry.bind("<Control-v>", self._on_paste)
         self.input_entry.bind("<Control-V>", self._on_paste)
         self.input_entry.bind("<Button-3>", lambda e: self._edit_menu(e, self.input_entry))
-        self.root.bind("<F11>", self._toggle_fullscreen)
-        self.input_entry.bind("<F11>", self._toggle_fullscreen)
-        self.root.bind("<Control-r>", self._open_palette)
-        self.root.bind("<Control-R>", self._open_palette)
-        self.input_entry.bind("<Control-r>", self._open_palette)
-        self.input_entry.bind("<Control-R>", self._open_palette)
         self.root.bind("<Control-t>", lambda e: self._new_tab())
         self.root.bind("<Control-w>", lambda e: self._close_tab(self._active))
         self.root.bind("<Control-Tab>", lambda e: self._cycle_tab(1))
@@ -1326,14 +1286,33 @@ class Retminal:
                 if ch == "X":
                     pixels[x, y] = color
         big = base.resize((gw * 5, gh * 9), Image.NEAREST)
-        canvas = Image.new("RGBA", (90, 57), (0, 0, 0, 0))
-        canvas.alpha_composite(big, ((90 - gw * 5) // 2, (57 - gh * 9) // 2))
+        ch = 3 * STRIP_H
+        cw = getattr(self, "_strip_w", 90)
+        canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+        canvas.alpha_composite(big, ((cw - gw * 5) // 2, (ch - gh * 9) // 2))
         return [
-            ImageTk.PhotoImage(canvas.crop((0, i * 19, 90, i * 19 + 19)))
+            ImageTk.PhotoImage(canvas.crop((0, i * STRIP_H, cw, i * STRIP_H + STRIP_H)))
             for i in range(3)
         ]
 
     def _make_strips(self):
+        # La mascotte est comptee comme 10 caracteres dans la mise en page du cadre :
+        # son image doit donc faire EXACTEMENT 10 x largeur_caractere de large, sinon
+        # le bord droit du cadre se decale sur les lignes de la mascotte (90px convient
+        # a Consolas/Windows = 9px/car, mais Mac = 10px/car -> il faut 100px).
+        try:
+            fnt = tkfont.Font(root=self.root, font=self.header["font"])
+            # On mesure 10 caracteres D'UN COUP (et pas 10 x la largeur d'un seul) :
+            # l'avance reelle est souvent fractionnaire (DejaVu ~9.7px) et measure()
+            # arrondit. Mesurer "MMMMMMMMMM" donne la vraie largeur des 10 espaces que
+            # l'image remplace -> le bord droit du cadre s'aligne.
+            self._strip_w = fnt.measure("M" * 10) or 90
+            if IS_MAC:
+                # Sur le Tk macOS, une image embarquee se rend 1px plus large que le
+                # texte de meme largeur -> on retire 1px pour aligner pile le bord droit.
+                self._strip_w -= 1
+        except Exception:
+            self._strip_w = 90
         try:
             self._strips = self._creature_strips(CREATURE_NORMAL, RETY_GREEN)
             self._clawd_strips = self._creature_strips(CREATURE_NORMAL, CLAWD_ORANGE)
@@ -1342,6 +1321,36 @@ class Retminal:
             self._strips = []
             self._clawd_strips = []
             self._carnet_mascot = []
+
+    def _carnet_strips(self):
+        from PIL import Image, ImageTk, ImageDraw
+
+        W, H = getattr(self, "_strip_w", 90), 3 * STRIP_H
+        pad = (W - 90) // 2  # contenu dessine pour 90px de large -> on le recentre
+        pxw, pxh = 4, 9
+        NAVY = (10, 14, 22, 255)
+        TURQ = (78, 224, 204, 255)
+        img = Image.new("RGBA", (W, H), NAVY)
+        d = ImageDraw.Draw(img)
+        ox, oy = 1 + pad, 1
+        for y, row in enumerate(CREATURE_NORMAL):
+            for x, ch in enumerate(row):
+                if ch == "X":
+                    d.rectangle(
+                        [ox + x * pxw, oy + y * pxh, ox + x * pxw + pxw - 1, oy + y * pxh + pxh - 1],
+                        fill=TURQ,
+                    )
+        nx, ny, nw, nh = 71 + pad, 14, 15, 26
+        d.rectangle([nx, ny, nx + nw, ny + nh], fill=(233, 242, 255, 255), outline=(90, 127, 181, 255))
+        d.rectangle([nx, ny, nx + nw, ny + 3], fill=(124, 184, 255, 255))
+        for i in range(3):
+            cx = nx + 3 + i * 5
+            d.ellipse([cx, ny - 2, cx + 2, ny + 1], fill=(124, 184, 255, 255))
+        for i in range(3):
+            ly = ny + 8 + i * 6
+            d.line([nx + 3, ly, nx + nw - 3, ly], fill=(120, 150, 195, 255), width=1)
+        d.rectangle([nx - 2, ny + 7, nx + 1, ny + 15], fill=TURQ)
+        return [ImageTk.PhotoImage(img.crop((0, i * STRIP_H, W, i * STRIP_H + STRIP_H))) for i in range(3)]
 
     def _apply_theme(self, t):
         self.theme = t
@@ -1381,6 +1390,21 @@ class Retminal:
         if hasattr(self, "tab_bar"):
             self.tab_bar.configure(bg=t["bg_bar"])
             self._render_tabs()
+        if hasattr(self, "logo_box"):
+            self.header.configure(bg=t["bg"])
+            self.header.tag_config("boxhide", foreground=t["bg"])
+            self.logo_box.configure(bg=t["bg"])
+            self._logo_bg = t["bg"]
+            # on re-dessine le logo courant pour rafraichir bordure + titre
+            # (_render_logo efface d'abord -> pas de duplication)
+            self._render_logo()
+
+    def _logo_titlebar(self, title, color):
+        # Pilote le cadre GRAPHIQUE (rectangle 1px) + le titre pose sur le bord haut.
+        bg = getattr(self, "_logo_bg", BG)
+        self.logo_box.configure(highlightbackground=color, highlightcolor=color)
+        self.logo_title.configure(text=title, fg=color, bg=bg)
+        self.header.configure(bg=bg)
 
     def _write_logo(self):
         if self._sysmon_on:
@@ -1389,26 +1413,21 @@ class Retminal:
         if self.claude_mode:
             self._write_claude_logo()
             return
-        iw = max(56, self._logo_cols() - 4)
-        prefix = "─── Retminal " + VERSION + " "
-        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
+        self._logo_titlebar("Retminal " + VERSION, self.theme["bright"])
         rows = [
-            (None, "", "out"),
             (0, "Welcome back, xxizacxx !", "bright"),
             (1, "root@retminal  ·  hacker terminal", "cyan"),
             (2, "Tape 'help' pour voir les commandes", "dim"),
-            (None, "", "out"),
         ]
-
         self.header.mark_set("logo_cursor", "1.0")
         self.header.mark_gravity("logo_cursor", "right")
 
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
 
-        put(top + "\n", "boxbold")
+        put("\n", "out")
         for strip, text, ttag in rows:
-            put("│ ", "boxbold")
+            put("  ", "out")
             if strip is not None and self._strips:
                 self.header.image_create(
                     "logo_cursor", image=self._strips[strip], align="top"
@@ -1417,35 +1436,28 @@ class Retminal:
                 put(" " * 10, "out")
             put("   ", "out")
             put(text, ttag)
-            used = 10 + 3 + len(text)
-            put(" " * max(0, iw - used), "out")
-            put(" │\n", "boxbold")
-        put("└" + "─" * (iw + 2) + "┘", "boxbold")
+            put("\n", "out")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
     def _write_claude_logo(self):
-        iw = max(56, self._logo_cols() - 4)
-        prefix = "─── Claude Code  ×  Retminal " + VERSION + " "
-        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
+        self._logo_titlebar("Claude Code  ×  Retminal " + VERSION, self.theme["accent"])
         rows = [
-            (None, "", "out"),
             (0, "Clawd  &  Rety  sont ensemble !", "orangebold"),
             (1, "Tu parles a Claude Code, ici dans Retminal.", "bright"),
             (2, "Ecris ta question  ·  'exit' pour revenir", "dim"),
-            (None, "", "out"),
         ]
+        clawd = getattr(self, "_clawd_strips", [])
+        rety = getattr(self, "_strips", [])
         self.header.mark_set("logo_cursor", "1.0")
         self.header.mark_gravity("logo_cursor", "right")
 
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
 
-        clawd = getattr(self, "_clawd_strips", [])
-        rety = getattr(self, "_strips", [])
-        put(top + "\n", "orangebold")
+        put("\n", "out")
         for strip, text, ttag in rows:
-            put("│ ", "orangebold")
+            put("  ", "out")
             if strip is not None and clawd and rety:
                 self.header.image_create("logo_cursor", image=clawd[strip], align="top")
                 self.header.image_create("logo_cursor", image=rety[strip], align="top")
@@ -1453,10 +1465,7 @@ class Retminal:
                 put(" " * 20, "out")
             put("   ", "out")
             put(text, ttag)
-            used = 20 + 3 + len(text)
-            put(" " * max(0, iw - used), "out")
-            put(" │\n", "orangebold")
-        put("└" + "─" * (iw + 2) + "┘", "orangebold")
+            put("\n", "out")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
@@ -1464,15 +1473,11 @@ class Retminal:
         name = os.path.basename(getattr(self, "_ed_path", "") or "") or "nouveau"
         dirty = "  (pas sauve)" if getattr(self, "_ed_dirty", False) else ""
         nlines = len(getattr(self, "_ed_lines", []) or [])
-        iw = max(56, self._logo_cols() - 4)
-        prefix = "─── CARNET (editeur)  ·  Retminal " + VERSION + " "
-        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
+        self._logo_titlebar("CARNET (editeur)  ·  Retminal " + VERSION, self.theme["bright"])
         rows = [
-            (None, "", "out"),
             (0, "Le carnet de xxizacxx  —  " + name + dirty, "bright"),
             (1, str(nlines) + " lignes  ·  Entree = nouvelle ligne  ·  Ctrl+Entree = suivante", "cyan"),
             (2, "Ctrl+S = sauver  ·  Ctrl+K = effacer  ·  Echap = quitter", "dim"),
-            (None, "", "out"),
         ]
         strips = getattr(self, "_carnet_mascot", None)
         self.header.mark_set("logo_cursor", "1.0")
@@ -1481,20 +1486,16 @@ class Retminal:
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
 
-        put(top + "\n", "boxbold")
+        put("\n", "out")
         for strip, text, ttag in rows:
-            put("│ ", "boxbold")
+            put("  ", "out")
             if strip is not None and strips:
                 self.header.image_create("logo_cursor", image=strips[strip], align="top")
             else:
                 put(" " * 10, "out")
             put("   ", "out")
-            text = text[:max(8, iw - 16)]
             put(text, ttag)
-            used = 10 + 3 + len(text)
-            put(" " * max(0, iw - used), "out")
-            put(" │\n", "boxbold")
-        put("└" + "─" * (iw + 2) + "┘", "boxbold")
+            put("\n", "out")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
@@ -1511,10 +1512,6 @@ class Retminal:
             label = "EXPLORATEUR VPS"
             line1 = "  Parcours les fichiers de ton serveur"
             line2 = "  [fleches] bouger  ·  [Entree] ouvrir  ·  [q] quitter"
-        elif src == "convos":
-            label = "CONVERSATIONS CLAUDE"
-            line1 = "  Reprends, relis ou supprime tes discussions avec Clawd"
-            line2 = "  [fleches] bouger  ·  [Entree] reprendre  ·  [x] suppr  ·  [q] quitter"
         elif src == "server":
             label = "MONITEUR SERVEUR"
             line1 = "  Etat du VPS en DIRECT : CPU, RAM, disque, services"
@@ -1523,14 +1520,10 @@ class Retminal:
             label = "GESTIONNAIRE DES TACHES"
             line1 = "  Moniteur systeme en DIRECT : CPU, RAM, disque, processus"
             line2 = "  [q] Quitter    ·    [espace] Pause    ·    maj chaque seconde"
-        iw = max(56, self._logo_cols() - 4)
-        prefix = "─── " + label + "  ·  Retminal " + VERSION + " "
-        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
+        self._logo_titlebar(label + "  ·  Retminal " + VERSION, self.theme["bright"])
         rows = [
-            ("", "out"),
             (line1, "bright"),
             (line2, "dim"),
-            ("", "out"),
         ]
         self.header.mark_set("logo_cursor", "1.0")
         self.header.mark_gravity("logo_cursor", "right")
@@ -1538,13 +1531,11 @@ class Retminal:
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
 
-        put(top + "\n", "boxbold")
+        put("\n", "out")
         for text, ttag in rows:
-            put("│ ", "boxbold")
             put(text, ttag)
-            put(" " * max(0, iw - len(text)), "out")
-            put(" │\n", "boxbold")
-        put("└" + "─" * (iw + 2) + "┘", "boxbold")
+            put("\n", "out")
+        put("\n", "out")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
@@ -1641,13 +1632,12 @@ class Retminal:
             pass
 
     def _echo_prompt_command(self, cmd):
-        self._copy_last = (getattr(self, "_copy_start", 0), len(self.buffer))
         for seg, tag in self._prompt_segments():
             self._insert(seg, tag)
         self._insert(self._mask_echo(cmd) + "\n", "out")
-        self._copy_start = len(self.buffer)
 
     def _mask_echo(self, cmd):
+        # ne pas re-afficher en clair un secret tape inline : 'coffre/vault add <nom> <mdp>'
         try:
             p = cmd.split()
             if len(p) >= 4 and p[0].lower() in ("coffre", "vault") and p[1].lower() == "add":
@@ -1667,9 +1657,6 @@ class Retminal:
                 return "break"
             if self._sysmon_source == "config":
                 self._config_activate()
-                return "break"
-            if self._sysmon_source == "convos":
-                self._convos_activate()
                 return "break"
             self._sysmon_stop()
             return "break"
@@ -1716,10 +1703,6 @@ class Retminal:
         "open": "ouvre un site web", "sysinfo": "gestionnaire des taches",
         "password": "genere un mot de passe", "mdp": "genere un mot de passe",
         "run": "lance une appli du PC", "qui": "qui est connecte", "rename": "renomme l'onglet",
-        "plein": "plein ecran (F11)", "fullscreen": "plein ecran (F11)",
-        "palette": "palette de commandes (Ctrl+R)",
-        "copy": "copie la derniere sortie", "copier": "copie la derniere sortie",
-        "clean": "nettoie le PC (fichiers temp)", "nettoyer": "nettoie le PC (fichiers temp)",
         "calc": "calculatrice", "note": "pense-bete", "notes": "pense-bete",
         "fav": "commandes favorites", "favs": "commandes favorites",
         "search": "cherche une commande", "find": "cherche une commande", "ping": "ping un site",
@@ -1745,6 +1728,7 @@ class Retminal:
         "quithost": "revenir en local", "reload": "recharge la config",
         "claude": "discuter avec Claude Code", "exit": "ferme Retminal", "quit": "ferme Retminal",
     }
+    # commandes qui n'ont de sens QUE connecte a un serveur
     _SERVER_ONLY = {
         "deploy", "envoyer", "download", "telecharger", "logs", "editvps",
         "moniteur", "monitor", "explore", "fichiers", "backup", "services", "qui",
@@ -1777,6 +1761,9 @@ class Retminal:
                     base.append((n, d))
                     seen.add(n.lower())
             return base
+        # TOUTES les commandes integrees (et pas juste une petite liste) : on part du
+        # dictionnaire self.custom. Connecte -> on garde les commandes serveur ; en
+        # local -> on enleve celles qui n'ont de sens que connecte.
         base = []
         seen_cmd = set()
         for name in self.custom:
@@ -2137,239 +2124,12 @@ class Retminal:
         self._sg_navigated = False
 
     def _suggest_blur(self, event=None):
+        # cache le popup quand on quitte la saisie (clic ailleurs, fenetre inactive).
+        # petit delai pour laisser un clic sur une suggestion s'enregistrer d'abord.
         try:
             self.root.after(150, self._hide_suggestions)
         except Exception:
             pass
-
-    # ---- Palette de commandes (Ctrl+R) ----
-    _PAL_FILTERS = [("tout", "Tout"), ("hist", "Historique"),
-                    ("cmd", "Commandes"), ("prog", "Programmes")]
-
-    def _open_palette(self, event=None):
-        if self._sysmon_on or self.claude_mode:
-            return "break"
-        self._hide_suggestions()
-        self._hide_md_preview()
-        self._pal_build()
-        self._pal_query = ""
-        self._pal_filter = "tout"
-        self._pal_sel = 0
-        self._pal_refresh()
-        self.pal.place(relx=0.5, y=64, anchor="n")
-        self.pal.lift()
-        self.pal_search.focus_set()
-        return "break"
-
-    def _pal_close(self):
-        try:
-            if self.pal is not None:
-                self.pal.place_forget()
-        except Exception:
-            pass
-        try:
-            self.input_entry.focus_set()
-        except Exception:
-            pass
-
-    def _pal_build(self):
-        if self.pal is not None:
-            try:
-                self.pal.destroy()
-            except Exception:
-                pass
-        t = self.theme
-        self.pal = tk.Frame(
-            self.container, bg=t["bg_bar"],
-            highlightbackground=t["accent"], highlightthickness=2,
-        )
-        top = tk.Frame(self.pal, bg=t["bg_bar"])
-        top.pack(fill="x", padx=10, pady=(9, 5))
-        tk.Label(top, text="\U0001f50d", bg=t["bg_bar"], fg=t["bright"],
-                 font=(MONO, 13)).pack(side="left", padx=(2, 8))
-        self.pal_search = tk.Entry(
-            top, bg=t["bg"], fg=t["bright"], insertbackground=t["fg"],
-            font=(MONO, 13), bd=0, relief="flat",
-            highlightthickness=1, highlightbackground=t["border"],
-            highlightcolor=t["accent"],
-        )
-        self.pal_search.pack(side="left", fill="x", expand=True, ipady=5, ipadx=6)
-        self.pal_search.bind("<KeyRelease>", self._pal_on_key)
-        self.pal_search.bind("<Up>", lambda e: self._pal_move(-1))
-        self.pal_search.bind("<Down>", lambda e: self._pal_move(1))
-        self.pal_search.bind("<Return>", lambda e: self._pal_accept())
-        self.pal_search.bind("<KP_Enter>", lambda e: self._pal_accept())
-        self.pal_search.bind("<Escape>", lambda e: (self._pal_close(), "break")[1])
-        self.pal_search.bind("<Tab>", lambda e: self._pal_cycle_filter())
-        self.pal_chipbar = tk.Frame(self.pal, bg=t["bg_bar"])
-        self.pal_chipbar.pack(fill="x", padx=10, pady=(0, 6))
-        self.pal_chips = {}
-        for key, lab in self._PAL_FILTERS:
-            c = tk.Label(self.pal_chipbar, text=lab, bg=t["bg"], fg=t["dim"],
-                         font=(MONO, 10), padx=11, pady=3, cursor="hand2")
-            c.pack(side="left", padx=(0, 6))
-            c.bind("<Button-1>", lambda e, k=key: self._pal_set_filter(k))
-            self.pal_chips[key] = c
-        self.pal_list = tk.Text(
-            self.pal, height=14, width=74, bg=t["bg"], fg=t["fg"],
-            font=(MONO, 12), bd=0, highlightthickness=0, wrap="none",
-            padx=6, pady=4, cursor="arrow", takefocus=0, state="disabled",
-        )
-        self.pal_list.pack(fill="both", expand=True, padx=10, pady=(0, 4))
-        self.pal_list.bind("<Button-1>", self._pal_click)
-        self.pal_list.bind("<MouseWheel>", self._pal_wheel)
-        self.pal_list.tag_config("palsec", foreground=t["cyan"], font=(MONO, 10, "bold"))
-        self.pal_list.tag_config("palcmd", foreground=t["bright"])
-        self.pal_list.tag_config("paldesc", foreground=t["dim"])
-        self.pal_list.tag_config("palsel", background=t["accent"], foreground=t["bg"])
-        self.pal_foot = tk.Label(
-            self.pal,
-            text="  ↑↓ bouger   ·   Entree = mettre dans la barre   ·   Tab = filtre   ·   Echap = fermer",
-            bg=t["bg_bar"], fg=t["dim"], font=(MONO, 9), anchor="w", pady=4,
-        )
-        self.pal_foot.pack(fill="x", padx=10, pady=(0, 8))
-
-    def _pal_all(self):
-        items = []
-        seen = set()
-        for h in reversed(self.history):
-            h = h.strip()
-            if h and h.lower() not in seen:
-                seen.add(h.lower())
-                items.append(("hist", h, ""))
-        prog = self._server_cmds if self.connected else self._local_cmds
-        prognames = {n.lower() for n, _ in prog}
-        for name, desc in self._command_suggestions():
-            kind = "prog" if name.lower() in prognames else "cmd"
-            items.append((kind, name, desc))
-        return items
-
-    def _pal_refresh(self):
-        q = self._pal_query.lower().strip()
-        f = self._pal_filter
-        matched = []
-        for kind, cmd, desc in self._pal_all():
-            if f != "tout" and f != kind:
-                continue
-            if q and q not in cmd.lower() and q not in desc.lower():
-                continue
-            matched.append((kind, cmd, desc))
-        order = {"hist": 0, "cmd": 1, "prog": 2}
-        matched.sort(key=lambda it: order.get(it[0], 3))
-        self._pal_items = matched[:250]
-        if self._pal_sel >= len(self._pal_items):
-            self._pal_sel = max(0, len(self._pal_items) - 1)
-        self._pal_update_chips()
-        self._pal_render()
-
-    def _pal_render(self):
-        lst = self.pal_list
-        lst.config(state="normal")
-        lst.delete("1.0", "end")
-        self._pal_linemap = {}
-        if not self._pal_items:
-            lst.insert("end", "\n   (rien trouve — change le texte ou le filtre)\n", "paldesc")
-            lst.config(state="disabled")
-            return
-        labels = {"hist": "HISTORIQUE", "cmd": "COMMANDES RETMINAL", "prog": "PROGRAMMES DU PC"}
-        W = 70
-        cur = None
-        for i, (kind, cmd, desc) in enumerate(self._pal_items):
-            if kind != cur:
-                cur = kind
-                lst.insert("end", ("\n" if i else "") + "  " + labels.get(kind, kind) + "\n", "palsec")
-            ln = int(lst.index("end-1c").split(".")[0])
-            self._pal_linemap[ln] = i
-            if i == self._pal_sel:
-                body = cmd + ("   " + desc if desc else "")
-                body = body[:W]
-                lst.insert("end", " " + body + " " * max(1, W - len(body)) + "\n", "palsel")
-            else:
-                lst.insert("end", " ", "palcmd")
-                lst.insert("end", cmd[:W], "palcmd")
-                if desc:
-                    d = desc[:max(0, W - len(cmd) - 3)]
-                    if d:
-                        lst.insert("end", "   " + d, "paldesc")
-                lst.insert("end", "\n", "paldesc")
-        lst.config(state="disabled")
-        sel_line = None
-        for ln, idx in self._pal_linemap.items():
-            if idx == self._pal_sel:
-                sel_line = ln
-                break
-        if sel_line is None or sel_line <= 13:
-            lst.yview_moveto(0.0)
-        else:
-            lst.see(f"{sel_line}.0")
-
-    def _pal_move(self, d):
-        if self._pal_items:
-            self._pal_sel = max(0, min(len(self._pal_items) - 1, self._pal_sel + d))
-            self._pal_render()
-        return "break"
-
-    def _pal_accept(self):
-        if self._pal_items:
-            i = max(0, min(self._pal_sel, len(self._pal_items) - 1))
-            cmd = self._pal_items[i][1]
-            self._pal_close()
-            self.input_entry.delete(0, "end")
-            self.input_entry.insert(0, cmd)
-            self.input_entry.icursor("end")
-            self.input_entry.focus_set()
-        else:
-            self._pal_close()
-        return "break"
-
-    def _pal_click(self, event):
-        try:
-            ln = int(self.pal_list.index(f"@{event.x},{event.y}").split(".")[0])
-        except Exception:
-            return "break"
-        if ln in self._pal_linemap:
-            self._pal_sel = self._pal_linemap[ln]
-            self._pal_accept()
-        return "break"
-
-    def _pal_wheel(self, event):
-        try:
-            self.pal_list.yview_scroll(-1 if event.delta > 0 else 1, "units")
-        except Exception:
-            pass
-        return "break"
-
-    def _pal_on_key(self, event):
-        if event.keysym in ("Up", "Down", "Return", "KP_Enter", "Escape", "Tab",
-                            "Control_L", "Control_R", "Shift_L", "Shift_R"):
-            return
-        self._pal_query = self.pal_search.get()
-        self._pal_sel = 0
-        self._pal_refresh()
-
-    def _pal_set_filter(self, key):
-        self._pal_filter = key
-        self._pal_sel = 0
-        self._pal_refresh()
-        try:
-            self.pal_search.focus_set()
-        except Exception:
-            pass
-        return "break"
-
-    def _pal_cycle_filter(self):
-        keys = [k for k, _ in self._PAL_FILTERS]
-        i = (keys.index(self._pal_filter) + 1) % len(keys) if self._pal_filter in keys else 0
-        self._pal_set_filter(keys[i])
-        return "break"
-
-    def _pal_update_chips(self):
-        t = self.theme
-        for key, chip in getattr(self, "pal_chips", {}).items():
-            if key == self._pal_filter:
-                chip.config(bg=t["accent"], fg=t["bg"])
-            else:
-                chip.config(bg=t["bg"], fg=t["dim"])
 
     def _suggest_move(self, delta):
         if not self._sg_shown or not self._sg_matches:
@@ -2423,8 +2183,6 @@ class Retminal:
                 self._editor_move(-1)
             elif self._sysmon_source == "config":
                 self._cfg_move(-1)
-            elif self._sysmon_source == "convos":
-                self._cv_move(-1)
             return "break"
         if self._sg_shown:
             self._suggest_move(-1)
@@ -2446,8 +2204,6 @@ class Retminal:
                 self._editor_move(1)
             elif self._sysmon_source == "config":
                 self._cfg_move(1)
-            elif self._sysmon_source == "convos":
-                self._cv_move(1)
             return "break"
         if self._sg_shown:
             self._suggest_move(1)
@@ -2623,8 +2379,7 @@ class Retminal:
                 "logs", "editvps", "moniteur", "monitor",
                 "explore", "fichiers", "backup", "services",
                 "convos", "conversations", "ask", "demande",
-                "explique", "resume", "plein", "fullscreen",
-                "copy", "copier", "clean", "nettoyer", "palette",
+                "explique", "resume",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -3425,10 +3180,6 @@ class Retminal:
             ("run <app>", "lance une appli de ton PC (ex: run notepad)"),
             ("qui", "qui est connecte sur ton serveur (une fois connecte)"),
             ("rename <nom>", "renomme l'onglet (ou double-clic sur l'onglet)"),
-            ("plein", "plein ecran (aussi la touche F11) — F11/Echap pour sortir"),
-            ("palette", "PALETTE de commandes (aussi Ctrl+R) : cherche dans l'historique + toutes les commandes"),
-            ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
-            ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
             ("note / notes", "ecris un pense-bete / vois tes notes"),
             ("fav / favs", "commandes favorites (fav add ..., fav 1)"),
@@ -3443,7 +3194,7 @@ class Retminal:
             ("ask <question>", "pose une question rapide a Clawd"),
             ("explique", "Clawd explique la derniere erreur"),
             ("resume", "petit resume rigolo de ta journee"),
-            ("convos", "GESTIONNAIRE de tes conversations Clawd (reprendre/supprimer)"),
+            ("convos", "tes anciennes conversations avec Clawd"),
             ("--- VPS (connecte) ---", "les commandes pour ton serveur :"),
             ("deploy <fic>", "envoie un fichier sur le VPS"),
             ("download <fic>", "recupere un fichier du VPS"),
@@ -3532,17 +3283,17 @@ class Retminal:
         host = self.ssh_host if self.connected else "retminal"
         return "root@" + host + " — Claude Code"
 
-    def _enter_claude_mode(self, resume_sid=None):
+    def _enter_claude_mode(self):
         self.claude_mode = True
         self._cmd_queue.clear()
         self._render_queue()
-        self._claude_session = resume_sid
+        self._claude_session = None
         if self._suggest_cache is None:
             self._suggest_cache = []
             threading.Thread(target=self._build_suggest_cache, daemon=True).start()
         self._apply_theme(THEME_CLAUDE)
         self._render_logo()
-        self.title_label.config(text=self._claude_title())
+        self._set_titlebar(self._claude_title())
         self.conn_badge.pack_forget()
         self._update_status()
         self._update_claude_status()
@@ -3567,11 +3318,6 @@ class Retminal:
             "dim",
         )
         self._insert("  /exit pour revenir a Retminal.\n", "dim")
-        if resume_sid:
-            self._insert(
-                "  ♻  Conversation REPRISE — continue a ecrire, Clawd se souvient !\n",
-                "orange",
-            )
         self._insert("\n", "out")
         self._write_prompt()
 
@@ -3628,15 +3374,6 @@ class Retminal:
     def _is_resume_error(self, text):
         return "no conversation found" in (text or "").lower()
 
-    def _result_problem(self, subtype):
-        if subtype == "error_max_turns":
-            return ("Clawd a atteint la limite de tours avant de finir. "
-                    "Redis-lui de continuer.")
-        if subtype == "error_during_execution":
-            return ("Clawd s'est arrete pendant l'execution "
-                    "(un outil a peut-etre ete bloque).")
-        return "Clawd s'est arrete (" + (subtype or "inconnu") + ")."
-
     def _claude_flags(self, remote, resume=True):
         flags = ["--output-format", "stream-json", "--verbose"]
         if resume and self._claude_session:
@@ -3649,10 +3386,8 @@ class Retminal:
             if remote:
                 flags += [
                     "--permission-mode", "acceptEdits",
-                    "--allowedTools", "Bash", "BashOutput", "KillShell",
-                    "Write", "Edit", "MultiEdit", "NotebookEdit", "Read",
+                    "--allowedTools", "Bash", "Write", "Edit", "Read",
                     "Grep", "Glob", "LS", "WebFetch", "WebSearch",
-                    "TodoWrite", "Task", "Skill",
                 ]
             else:
                 flags += ["--dangerously-skip-permissions"]
@@ -3781,17 +3516,10 @@ class Retminal:
             sid = ev.get("session_id")
             if sid:
                 self._claude_session = sid
-            subtype = str(ev.get("subtype", "")).strip()
-            txt = str(ev.get("result", "")).strip()
-            is_err = bool(ev.get("is_error")) or (subtype not in ("", "success"))
-            if is_err:
-                friendly = self._friendly_claude_error(txt) if txt else None
-                self._insert(
-                    "  [!] " + (friendly or txt or self._result_problem(subtype))
-                    + "\n", "err",
-                )
-            elif not self._claude_saw_text and txt:
-                self._claude_text_out(txt)
+            if not self._claude_saw_text:
+                txt = str(ev.get("result", "")).strip()
+                if txt:
+                    self._claude_text_out(txt)
             return
         if etype == "assistant":
             for block in ev.get("message", {}).get("content", []):
@@ -3886,18 +3614,6 @@ class Retminal:
             return str(inp.get("url", inp.get("query", "")))
         if name == "TodoWrite":
             return "liste de taches"
-        if name == "Skill":
-            return str(inp.get("skill", inp.get("name", "")))
-        if name in ("Task", "Agent"):
-            return str(
-                inp.get("description", inp.get("subagent_type", ""))
-            )
-        if name == "ExitPlanMode":
-            return ""
-        for key in ("command", "path", "file_path", "query", "url",
-                    "pattern", "prompt", "description", "name"):
-            if isinstance(inp.get(key), str) and inp[key].strip():
-                return inp[key]
         try:
             return json.dumps(inp, ensure_ascii=False)
         except Exception:
@@ -3965,7 +3681,7 @@ class Retminal:
         self.running = False
         self._apply_theme(THEME_GREEN)
         self._render_logo()
-        self.title_label.config(text="root@retminal — Retminal " + VERSION)
+        self._set_titlebar("root@retminal — Retminal " + VERSION)
         self.status_hint.config(text="   ·   Shift+Tab pour changer de serveur")
         if not self.conn_badge.winfo_manager():
             self.conn_badge.pack(side="right", padx=(0, 22))
@@ -4141,7 +3857,7 @@ class Retminal:
             self._cpu_percent()
             title = "root@retminal — Gestionnaire des taches"
         self._render_logo()
-        self.title_label.config(text=title)
+        self._set_titlebar(title)
         self.text.delete("1.0", "end")
         self.text.mark_set("sysmon", "end-1c")
         self.text.mark_gravity("sysmon", "left")
@@ -4155,7 +3871,7 @@ class Retminal:
             return
         editor = (self._sysmon_source == "editor")
         self._sysmon_on = False
-        self._set_input_secret(False)
+        self._set_input_secret(False)   # au cas ou on quitte pendant la saisie d'un mdp
         self._hide_md_preview()
         try:
             if editor:
@@ -4171,7 +3887,7 @@ class Retminal:
                 pass
             self._sysmon_after = None
         self._render_logo()
-        self.title_label.config(text="root@retminal — Retminal " + VERSION)
+        self._set_titlebar("root@retminal — Retminal " + VERSION)
         try:
             self.text.delete("1.0", "end")
             for seg, tag in self.buffer:
@@ -4268,8 +3984,11 @@ class Retminal:
             return None
         if self._sysmon_source == "config":
             if self._cfg_input:
-                return None
+                return None   # mode saisie : on laisse taper dans la barre
             ks = event.keysym
+            # IMPORTANT : on NE consomme PAS (return None) les touches de navigation,
+            # pour laisser leurs bindings dedies (<Up>/<Down>/<Return>/<Escape>) agir.
+            # Avant, le "break" generique avalait les fleches 1 fois sur 2 -> bug connu.
             if ks in ("Up", "Down", "Return", "KP_Enter", "Escape"):
                 return None
             if ks in ("Home", "End", "Prior", "Next"):
@@ -4278,22 +3997,7 @@ class Retminal:
             if ks in ("Delete", "BackSpace"):
                 self._config_delete_selected()
                 return "break"
-            return "break"
-        if self._sysmon_source == "convos":
-            ks = event.keysym
-            if self._cv_confirm:
-                if ks in ("o", "O", "y", "Y"):
-                    self._convos_do_delete()
-                elif ks in ("n", "N"):
-                    self._cv_confirm = None
-                    self._cv_msg = "Annule."
-                    self._convos_render()
-                return "break"
-            if ks in ("x", "X", "Delete"):
-                self._convos_ask_delete()
-            elif ks in ("q", "Q"):
-                self._sysmon_stop()
-            return "break"
+            return "break"   # bloque la frappe de lettres dans le menu
         ks = event.keysym
         if ks in ("q", "Q", "Escape"):
             self._sysmon_stop()
@@ -4870,7 +4574,7 @@ class Retminal:
         self._cfg_msg = ""
         self._cfg_busy = False
         self._cfg_del_confirm = None
-        self.title_label.config(text="root@retminal — Configuration")
+        self._set_titlebar("root@retminal — Configuration")
         self._render_logo()
         self.text.delete("1.0", "end")
         self.text.mark_set("sysmon", "end-1c")
@@ -4927,8 +4631,8 @@ class Retminal:
             rows.append({"text": "← Retour au menu", "fn": self._cfg_back})
         elif v == "serveurs":
             for i, s in enumerate(self._cfg_load_raw("servers.json")):
-                ip = self._mask_value(s.get("ip", "?"))
-                user = self._mask_value(s.get("user", "?"))
+                ip = self._mask_value(s.get("ip", "?"))      # masque si token §§
+                user = self._mask_value(s.get("user", "?"))  # idem
                 rows.append({"text": "🖥  " + str(s.get("name", "?")) + "   ·   " + user + "@" + ip, "fn": None, "del": ("servers.json", i)})
             rows.append({"text": "+  Ajouter un serveur", "fn": self._cfg_server_add})
             rows.append({"text": "← Retour au menu", "fn": self._cfg_back})
@@ -4987,6 +4691,7 @@ class Retminal:
             w += 2 if self._is_core_emoji(o) else 1
         return w
 
+    # ---- masquage des secrets (mots de passe / cles / tokens §§) ----
     _SECRET_FIELDS = {"password", "pass", "mdp", "cle", "key", "token", "secret"}
     _SECRET_MASK = "*****"
 
@@ -4994,9 +4699,11 @@ class Retminal:
         return str(key).lower() in self._SECRET_FIELDS
 
     def _is_token_ref(self, v):
+        # un jeton de fichier type ENV§§.env:MDP / TXT§§notes.txt:2 / JSON§§data.json:cle
         return "§§" in str(v)
 
     def _mask_value(self, v, key=None):
+        # renvoie "*****" si la valeur est sensible (champ secret OU token §§), sinon v
         s = str(v)
         if not s:
             return s
@@ -5005,6 +4712,7 @@ class Retminal:
         return s
 
     def _set_input_secret(self, on):
+        # masque la frappe de la barre de saisie (mode "mot de passe")
         try:
             self.input_entry.config(show="•" if on else "")
         except Exception:
@@ -5050,6 +4758,7 @@ class Retminal:
             inp = self._cfg_input
             self.text.delete("sysmon", "end")
             ins = self.text.insert
+            # frappe masquee (•) si le champ courant est un secret (mot de passe...)
             cur_key = inp["fields"][inp["i"]][0] if inp["i"] < len(inp["fields"]) else None
             self._set_input_secret(self._is_secret_field(cur_key))
             ins("end", "\n  ✏  " + inp["title"] + "\n\n", "cyan")
@@ -5060,7 +4769,7 @@ class Retminal:
                     if not val:
                         ins("end", "(vide)\n", "dim")
                     elif self._is_secret_field(key) or self._is_token_ref(val):
-                        ins("end", self._SECRET_MASK + "\n", "dim")
+                        ins("end", self._SECRET_MASK + "\n", "dim")   # masque gris
                     else:
                         ins("end", val + "\n", "out")
                 elif j == inp["i"]:
@@ -5092,10 +4801,11 @@ class Retminal:
     def _cfg_move(self, delta):
         if self._cfg_input or not getattr(self, "_cfg_rows", None):
             return
-        self._cfg_del_confirm = None
+        self._cfg_del_confirm = None   # annule une confirmation de suppression en cours
         rows = self._cfg_rows
         n = len(rows)
         i = self._cfg_sel
+        # cherche la prochaine ligne ACTIONNABLE avec bouclage (saute les lignes d'info)
         for _ in range(n):
             i = (i + delta) % n
             if self._cfg_actionable(i):
@@ -5112,9 +4822,9 @@ class Retminal:
             self._cfg_sel = self._cfg_first_actionable(0, 1)
         elif ks == "End":
             self._cfg_sel = self._cfg_first_actionable(n - 1, -1)
-        elif ks == "Prior":
+        elif ks == "Prior":   # PageUp
             self._cfg_sel = self._cfg_first_actionable(max(0, self._cfg_sel - 5), -1)
-        elif ks == "Next":
+        elif ks == "Next":    # PageDown
             self._cfg_sel = self._cfg_first_actionable(min(n - 1, self._cfg_sel + 5), 1)
         self._config_render()
 
@@ -5124,6 +4834,7 @@ class Retminal:
         self._cfg_msg = ""
         self._cfg_del_confirm = None
         self._config_render()
+        # place la selection sur la 1re ligne actionnable de la nouvelle vue
         self._cfg_sel = self._cfg_first_actionable(0, 1)
         self._config_render()
 
@@ -5154,6 +4865,7 @@ class Retminal:
         target = rows[self._cfg_sel].get("del")
         if not target:
             return
+        # confirmation : il faut appuyer DEUX fois sur Suppr (securite anti-erreur)
         if getattr(self, "_cfg_del_confirm", None) != self._cfg_sel:
             self._cfg_del_confirm = self._cfg_sel
             self._cfg_msg = "⚠  Re-appuie sur Suppr pour confirmer la suppression  ·  (une autre touche annule)"
@@ -5716,8 +5428,8 @@ class Retminal:
             self._ed_prev_theme = pack["prev_theme"]
             self._ed_pending = None
         self._editor_config_tags()
-        self.title_label.config(
-            text="root@retminal — Carnet : " + os.path.basename(getattr(self, "_ed_path", "") or "")
+        self._set_titlebar(
+            "root@retminal — Carnet : " + os.path.basename(getattr(self, "_ed_path", "") or "")
         )
         self.conn_badge.config(text="", bg=self.theme["bg"])
         self.status_hint.config(text="   ·   Carnet : Echap pour quitter")
@@ -5754,7 +5466,7 @@ class Retminal:
         self._ed_prev_theme = self.theme
         self._apply_theme(THEME_BLUE)
         self._editor_config_tags()
-        self.title_label.config(text="root@retminal — Carnet : " + os.path.basename(path))
+        self._set_titlebar("root@retminal — Carnet : " + os.path.basename(path))
         self._render_logo()
         self._ed_hdr_state = (len(self._ed_lines), self._ed_dirty)
         self.text.delete("1.0", "end")
@@ -6123,7 +5835,7 @@ class Retminal:
         self._fx_loading = True
         self._fx_confirm = None
         self._fx_msg = "Chargement..."
-        self.title_label.config(text="root@retminal — Explorateur (" + (self.ssh_host or "VPS") + ")")
+        self._set_titlebar("root@retminal — Explorateur (" + (self.ssh_host or "VPS") + ")")
         self.text.delete("1.0", "end")
         self.text.mark_set("sysmon", "end-1c")
         self.text.mark_gravity("sysmon", "left")
@@ -6454,61 +6166,50 @@ class Retminal:
         return cand
 
     def cmd_convos(self, cmd):
-        self._convos_takeover()
-
-    def _convos_takeover(self):
-        self.running = False
-        self.proc = None
-        self._cmd_queue = []
-        self._sysmon_on = True
-        self._sysmon_source = "convos"
-        self._cv_sel = 0
-        self._cv_msg = ""
-        self._cv_confirm = None
-        self._convos_load()
-        self.title_label.config(text="root@retminal — Conversations Claude")
-        self._render_logo()
-        self.text.delete("1.0", "end")
-        self.text.mark_set("sysmon", "end-1c")
-        self.text.mark_gravity("sysmon", "left")
-        self.input_entry.delete(0, "end")
-        self.input_entry.focus_set()
-        self._update_status()
-        self._convos_render()
-
-    def _convos_load(self):
+        parts = cmd.split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ""
         d = self._claude_projects_dir()
-        out = []
+        files = []
         if d and os.path.isdir(d):
             for fn in os.listdir(d):
-                if not fn.endswith(".jsonl"):
-                    continue
-                fp = os.path.join(d, fn)
-                try:
-                    mt = os.path.getmtime(fp)
-                    sz = os.path.getsize(fp)
-                except Exception:
-                    continue
-                out.append({"path": fp, "sid": fn[:-6], "mtime": mt,
-                            "size": sz, "title": "", "msgs": []})
-        out.sort(key=lambda x: x["mtime"], reverse=True)
-        out = out[:30]
-        for c in out:
-            title, msgs = self._convos_scan_file(c["path"])
-            c["title"] = title
-            c["msgs"] = msgs
-        self._cv_list = out
+                if fn.endswith(".jsonl"):
+                    fp = os.path.join(d, fn)
+                    try:
+                        files.append((fp, os.path.getmtime(fp), os.path.getsize(fp)))
+                    except Exception:
+                        pass
+        files.sort(key=lambda x: x[1], reverse=True)
+        if arg.lower().startswith("open ") or arg.lower().startswith("voir "):
+            try:
+                n = int(arg.split()[1])
+            except Exception:
+                n = 0
+            if 1 <= n <= len(files):
+                self._convos_preview(files[n - 1][0])
+            else:
+                self._insert("  Numero invalide.\n", "err")
+                self._write_prompt()
+            return
+        if not files:
+            self._insert("  Aucune conversation Claude trouvee pour ce dossier.\n", "dim")
+            self._write_prompt()
+            return
+        import time as _t
+        self._insert("  💬 Tes conversations Claude (" + str(len(files)) + ") :\n", "cyan")
+        for i, (fp, mt, sz) in enumerate(files[:15], 1):
+            when = _t.strftime("%d/%m %H:%M", _t.localtime(mt))
+            self._insert("   " + str(i).rjust(2) + ". ", "dim")
+            self._insert(when + "  ", "cyan")
+            self._insert(self._human_size(sz).rjust(9) + "  ", "dim")
+            self._insert(os.path.basename(fp)[:8] + "\n", "out")
+        self._insert("  (convos open <numero> = apercu de la conversation)\n", "dim")
+        self._write_prompt()
 
-    def _convos_scan_file(self, fp, max_msgs=6, max_lines=500):
-        title = ""
+    def _convos_preview(self, fp):
         msgs = []
         try:
             with open(fp, "r", encoding="utf-8") as f:
-                n = 0
                 for line in f:
-                    n += 1
-                    if n > max_lines:
-                        break
                     try:
                         obj = json.loads(line)
                     except Exception:
@@ -6525,128 +6226,22 @@ class Retminal:
                         for c in content:
                             if isinstance(c, dict) and c.get("type") == "text":
                                 txt += c.get("text", "")
-                    txt = " ".join(txt.split()).strip()
-                    skip = (
-                        not txt or txt.startswith("<") or txt.startswith("Caveat")
-                        or txt.startswith("This session is being continued")
-                        or txt.startswith("Continue from where")
-                    )
-                    if not skip:
+                    txt = txt.strip()
+                    if txt and not txt.startswith("<") and not txt.startswith("Caveat"):
                         msgs.append(txt)
-                        if not title:
-                            title = txt
-                        if len(msgs) >= max_msgs:
-                            break
-        except Exception:
-            pass
-        return title, msgs
-
-    def _cv_fit(self, s, w):
-        if self._dwidth(s) <= w:
-            return s
-        out = ""
-        used = 0
-        for ch in s:
-            cw = 0 if ord(ch) in (0xFE0F, 0x200D) else (2 if self._is_core_emoji(ord(ch)) else 1)
-            if used + cw > w - 1:
-                break
-            out += ch
-            used += cw
-        return out + "…"
-
-    def _convos_render(self):
-        try:
-            import time as _t
-            self.text.delete("sysmon", "end")
-            ins = self.text.insert
-            pw = max(40, self._logo_cols() - 8)
-            ins("end", "\n  💬  CONVERSATIONS CLAUDE   (" + str(len(self._cv_list)) + ")\n", "cyan")
-            ins("end", "  " + "─" * pw + "\n", "cfgbox")
-            if not self._cv_list:
-                ins("end", "     Aucune conversation pour ce dossier.\n", "dim")
-                ins("end", "     Discute avec Clawd (tape 'claude'), elles apparaitront ici.\n", "dim")
-            for i, c in enumerate(self._cv_list):
-                when = _t.strftime("%d/%m %H:%M", _t.localtime(c["mtime"]))
-                title = c["title"] or "(sans titre)"
-                label = when + "   " + title
-                if i == self._cv_sel:
-                    ins("end", "  ", "cfgbox")
-                    txt = self._cv_fit("▸  " + label, pw)
-                    pad = max(1, pw - self._dwidth(txt))
-                    ins("end", txt + " " * pad, "cfgsel")
-                    ins("end", "\n", "out")
-                else:
-                    ins("end", "     ", "cfgbox")
-                    ins("end", self._cv_fit(label, pw) + "\n", "out")
-            ins("end", "  " + "─" * pw + "\n", "cfgbox")
-            if self._cv_confirm:
-                ins("end", "\n  🗑  Supprimer cette conversation ?   [o] oui   ·   [n] non\n", "err")
-            elif self._cv_list:
-                c = self._cv_list[self._cv_sel]
-                ins("end", "\n  Apercu (tes messages) :\n", "cyan")
-                shown = [m for m in c["msgs"]][:5]
-                if not shown:
-                    ins("end", "     (rien a montrer)\n", "dim")
-                for m in shown:
-                    ins("end", "     > " + self._cv_fit(m, pw - 6) + "\n", "dim")
-            hint = ("  [fleches] bouger   ·   [Entree] REPRENDRE"
-                    "   ·   [x] supprimer   ·   [q/Echap] quitter")
-            ins("end", "\n" + hint + "\n", "dim")
-            if self._cv_msg:
-                ins("end", "\n  " + self._cv_msg + "\n", "bright")
-        except Exception:
-            pass
-
-    def _cv_move(self, delta):
-        if not self._cv_list or self._cv_confirm:
+        except Exception as e:
+            self._insert("  [!] " + str(e) + "\n", "err")
+            self._write_prompt()
             return
-        self._cv_sel = max(0, min(len(self._cv_list) - 1, self._cv_sel + delta))
-        self._cv_msg = ""
-        self._convos_render()
-
-    def _convos_activate(self):
-        if self._cv_confirm or not self._cv_list:
-            return
-        if self.connected:
-            self._cv_msg = "Pour reprendre une conv de ton PC, reviens en Local (quithost)."
-            self._convos_render()
-            return
-        import shutil
-        if not shutil.which("claude"):
-            self._cv_msg = "[!] Claude Code n'est pas installe (commande 'claude')."
-            self._convos_render()
-            return
-        sid = self._cv_list[self._cv_sel]["sid"]
-        self._sysmon_stop()
-        self._enter_claude_mode(resume_sid=sid)
-
-    def _convos_ask_delete(self):
-        if not self._cv_list:
-            return
-        self._cv_confirm = self._cv_list[self._cv_sel]["sid"]
-        self._cv_msg = ""
-        self._convos_render()
-
-    def _convos_do_delete(self):
-        sid = self._cv_confirm
-        self._cv_confirm = None
-        target = None
-        for c in self._cv_list:
-            if c["sid"] == sid:
-                target = c
-                break
-        if target:
-            try:
-                os.remove(target["path"])
-                self._cv_msg = "🗑 Conversation supprimee."
-            except Exception as e:
-                self._cv_msg = "[!] " + str(e)
-        self._convos_load()
-        if self._cv_list:
-            self._cv_sel = max(0, min(self._cv_sel, len(self._cv_list) - 1))
-        else:
-            self._cv_sel = 0
-        self._convos_render()
+        self._insert("  Apercu (tes messages) :\n", "cyan")
+        if not msgs:
+            self._insert("   (rien a montrer)\n", "dim")
+        for m in msgs[:8]:
+            line = " ".join(m.split())
+            if len(line) > 76:
+                line = line[:73] + "..."
+            self._insert("   > " + line + "\n", "out")
+        self._write_prompt()
 
     def _claude_oneshot(self, prompt, intro):
         import shutil
@@ -7134,6 +6729,7 @@ class Retminal:
             return
         nm = parts[1]
         if nm in entries:
+            # on n'affiche PAS le mot de passe en clair : masque + copie presse-papier
             self._insert("  " + nm + " : ", "out")
             self._insert("*****", "dim")
             try:
@@ -7508,9 +7104,6 @@ class Retminal:
         self._write_prompt()
 
     def _on_escape(self, event):
-        if getattr(self, "pal", None) is not None and self.pal.winfo_ismapped():
-            self._pal_close()
-            return "break"
         if self._sysmon_on:
             if self._sysmon_source == "explore":
                 if self._fx_confirm:
@@ -7531,20 +7124,9 @@ class Retminal:
                 else:
                     self._sysmon_stop()
                 return "break"
-            if self._sysmon_source == "convos":
-                if self._cv_confirm:
-                    self._cv_confirm = None
-                    self._cv_msg = "Annule."
-                    self._convos_render()
-                else:
-                    self._sysmon_stop()
-                return "break"
             self._sysmon_stop()
             return "break"
-        had_sugg = self._sg_shown
         self._hide_suggestions()
-        if self._fullscreen and not had_sugg:
-            self._toggle_fullscreen()
         return "break"
 
     def _menu(self):
@@ -7634,11 +7216,11 @@ class Retminal:
             self.text.insert("end-1c", self._cmd_st["live"], "out")
         self.text.see("end")
         if self.claude_mode:
-            self.title_label.config(text=self._claude_title())
+            self._set_titlebar(self._claude_title())
             self.conn_badge.pack_forget()
             self._update_claude_status()
         else:
-            self.title_label.config(text="root@retminal — Retminal " + VERSION)
+            self._set_titlebar("root@retminal — Retminal " + VERSION)
             if not self.conn_badge.winfo_manager():
                 self.conn_badge.pack(side="right", padx=(0, 22))
             self.status_hint.config(
@@ -8181,6 +7763,12 @@ class Retminal:
         self.root.geometry(f"+{x}+{y}")
 
     def _minimize(self):
+        if not IS_WIN:
+            try:
+                self.root.iconify()
+            except Exception:
+                pass
+            return
         try:
             ctypes.windll.user32.ShowWindow(self._hwnd(), 6)
         except Exception:
@@ -8216,7 +7804,8 @@ class Retminal:
 
 def main():
     root = tk.Tk()
-    root.title("Retminal")
+    # Sur Mac la barre native affiche ce titre (la barre maison est cachee).
+    root.title("root@retminal — Retminal " + VERSION if IS_MAC else "Retminal")
     Retminal(root)
     root.mainloop()
 
