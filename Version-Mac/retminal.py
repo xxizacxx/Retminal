@@ -1044,6 +1044,7 @@ class Retminal:
         self.input_entry.bind("<KeyRelease>", self._refresh_suggestions)
         self.input_entry.bind("<KeyRelease>", self._input_echo_update, add="+")
         self.input_entry.bind("<Escape>", self._on_escape)
+        self.input_entry.bind("<FocusOut>", self._suggest_blur, add="+")
         self.input_entry.bind("<Control-v>", self._on_paste)
         self.input_entry.bind("<Control-V>", self._on_paste)
         self.input_entry.bind("<Button-3>", lambda e: self._edit_menu(e, self.input_entry))
@@ -1643,8 +1644,18 @@ class Retminal:
         self._copy_last = (getattr(self, "_copy_start", 0), len(self.buffer))
         for seg, tag in self._prompt_segments():
             self._insert(seg, tag)
-        self._insert(cmd + "\n", "out")
+        self._insert(self._mask_echo(cmd) + "\n", "out")
         self._copy_start = len(self.buffer)
+
+    def _mask_echo(self, cmd):
+        try:
+            p = cmd.split()
+            if len(p) >= 4 and p[0].lower() in ("coffre", "vault") and p[1].lower() == "add":
+                p[3] = self._SECRET_MASK
+                return " ".join(p[:4]) + (" " + " ".join(p[4:]) if len(p) > 4 else "")
+        except Exception:
+            pass
+        return cmd
 
     def _on_submit(self, event=None):
         if self._sysmon_on:
@@ -1699,6 +1710,46 @@ class Retminal:
         self._dispatch(cmd)
         return "break"
 
+    _CMD_DESC = {
+        "help": "affiche l'aide", "about": "infos sur Retminal", "retminal": "infos sur Retminal",
+        "clear": "efface l'ecran", "cls": "efface l'ecran", "clf": "stoppe / vide la file",
+        "open": "ouvre un site web", "sysinfo": "gestionnaire des taches",
+        "password": "genere un mot de passe", "mdp": "genere un mot de passe",
+        "run": "lance une appli du PC", "qui": "qui est connecte", "rename": "renomme l'onglet",
+        "plein": "plein ecran (F11)", "fullscreen": "plein ecran (F11)",
+        "palette": "palette de commandes (Ctrl+R)",
+        "copy": "copie la derniere sortie", "copier": "copie la derniere sortie",
+        "clean": "nettoie le PC (fichiers temp)", "nettoyer": "nettoie le PC (fichiers temp)",
+        "calc": "calculatrice", "note": "pense-bete", "notes": "pense-bete",
+        "fav": "commandes favorites", "favs": "commandes favorites",
+        "search": "cherche une commande", "find": "cherche une commande", "ping": "ping un site",
+        "coffre": "coffre-fort de mots de passe", "vault": "coffre-fort de mots de passe",
+        "settings": "parametres + stream", "parametres": "parametres", "params": "parametres",
+        "config": "page de configuration", "configuration": "page de configuration",
+        "stream": "cache IP/mdp a l'ecran", "markdown": "rendu markdown", "md": "rendu markdown",
+        "say": "affiche du texte joli", "dire": "affiche du texte joli", "print": "affiche du texte joli",
+        "deploy": "envoie un fichier au VPS", "envoyer": "envoie un fichier au VPS",
+        "download": "recupere un fichier du VPS", "telecharger": "recupere un fichier du VPS",
+        "logs": "derniers logs du serveur", "editvps": "editer un fichier VPS",
+        "moniteur": "moniteur du serveur", "monitor": "moniteur du serveur",
+        "explore": "explorateur de fichiers VPS", "fichiers": "explorateur de fichiers VPS",
+        "backup": "sauvegarde un dossier VPS", "services": "gere les services du VPS",
+        "convos": "conversations Claude", "conversations": "conversations Claude",
+        "ask": "question rapide a Claude", "demande": "question rapide a Claude",
+        "explique": "Claude explique l'erreur", "resume": "resume de la journee",
+        "nano": "ouvre le carnet", "vim": "ouvre le carnet", "vi": "ouvre le carnet",
+        "edit": "ouvre le carnet", "shells": "liste / change de shell",
+        "cmd": "passe en cmd", "windows": "passe en cmd", "ubuntu": "passe en Ubuntu",
+        "linux": "passe en Ubuntu", "powershell": "passe en PowerShell",
+        "connect": "connexion SSH au VPS", "disconnect": "revenir en local",
+        "quithost": "revenir en local", "reload": "recharge la config",
+        "claude": "discuter avec Claude Code", "exit": "ferme Retminal", "quit": "ferme Retminal",
+    }
+    _SERVER_ONLY = {
+        "deploy", "envoyer", "download", "telecharger", "logs", "editvps",
+        "moniteur", "monitor", "explore", "fichiers", "backup", "services", "qui",
+    }
+
     def _command_suggestions(self):
         if self.claude_mode:
             base = [
@@ -1726,20 +1777,22 @@ class Retminal:
                     base.append((n, d))
                     seen.add(n.lower())
             return base
-        if self.connected:
-            base = [("quithost", "revenir en local"), ("clear", "efface l'ecran")]
-        else:
-            base = [
-                ("help", "affiche l'aide"),
-                ("about", "infos sur Retminal"),
-                ("connect", "connexion SSH au VPS"),
-                ("claude", "discuter avec Claude Code"),
-                ("clear", "efface l'ecran"),
-                ("reload", "recharge la config"),
-                ("exit", "ferme Retminal"),
-            ]
+        base = []
+        seen_cmd = set()
+        for name in self.custom:
+            if self.connected:
+                if name in ("connect",):
+                    continue
+            else:
+                if name in self._SERVER_ONLY or name in ("quithost", "disconnect"):
+                    continue
+            if name in seen_cmd:
+                continue
+            seen_cmd.add(name)
+            base.append((name, self._CMD_DESC.get(name, "commande")))
         for alias in sorted(self._all_user_commands()):
-            base.append((alias, "commande perso"))
+            if alias.lower() not in seen_cmd:
+                base.append((alias, "commande perso"))
         seen = {n.lower() for n, _ in base}
         for n, d in (self._server_cmds if self.connected else self._local_cmds):
             if n.lower() not in seen:
@@ -2082,6 +2135,12 @@ class Retminal:
             self.suggest.place_forget()
         self._sg_shown = False
         self._sg_navigated = False
+
+    def _suggest_blur(self, event=None):
+        try:
+            self.root.after(150, self._hide_suggestions)
+        except Exception:
+            pass
 
     # ---- Palette de commandes (Ctrl+R) ----
     _PAL_FILTERS = [("tout", "Tout"), ("hist", "Historique"),
@@ -2800,6 +2859,7 @@ class Retminal:
         return cwd
 
     def _cycle_shell(self, event=None):
+        self._hide_suggestions()
         if self.connected or self.claude_mode or self._sysmon_on or self.running:
             return "break"
         if len(self.shells) <= 1:
@@ -4095,6 +4155,7 @@ class Retminal:
             return
         editor = (self._sysmon_source == "editor")
         self._sysmon_on = False
+        self._set_input_secret(False)
         self._hide_md_preview()
         try:
             if editor:
@@ -4208,8 +4269,15 @@ class Retminal:
         if self._sysmon_source == "config":
             if self._cfg_input:
                 return None
-            if event.keysym == "Delete":
+            ks = event.keysym
+            if ks in ("Up", "Down", "Return", "KP_Enter", "Escape"):
+                return None
+            if ks in ("Home", "End", "Prior", "Next"):
+                self._cfg_jump(ks)
+                return "break"
+            if ks in ("Delete", "BackSpace"):
                 self._config_delete_selected()
+                return "break"
             return "break"
         if self._sysmon_source == "convos":
             ks = event.keysym
@@ -4801,6 +4869,7 @@ class Retminal:
         self._cfg_input = None
         self._cfg_msg = ""
         self._cfg_busy = False
+        self._cfg_del_confirm = None
         self.title_label.config(text="root@retminal — Configuration")
         self._render_logo()
         self.text.delete("1.0", "end")
@@ -4809,6 +4878,8 @@ class Retminal:
         self.input_entry.delete(0, "end")
         self.input_entry.focus_set()
         self._update_status()
+        self._config_render()
+        self._cfg_sel = self._cfg_first_actionable(0, 1)
         self._config_render()
 
     def _cfg_path(self, name):
@@ -4856,7 +4927,9 @@ class Retminal:
             rows.append({"text": "← Retour au menu", "fn": self._cfg_back})
         elif v == "serveurs":
             for i, s in enumerate(self._cfg_load_raw("servers.json")):
-                rows.append({"text": "🖥  " + str(s.get("name", "?")) + "   ·   " + str(s.get("user", "?")) + "@" + str(s.get("ip", "?")), "fn": None, "del": ("servers.json", i)})
+                ip = self._mask_value(s.get("ip", "?"))
+                user = self._mask_value(s.get("user", "?"))
+                rows.append({"text": "🖥  " + str(s.get("name", "?")) + "   ·   " + user + "@" + ip, "fn": None, "del": ("servers.json", i)})
             rows.append({"text": "+  Ajouter un serveur", "fn": self._cfg_server_add})
             rows.append({"text": "← Retour au menu", "fn": self._cfg_back})
         elif v == "ssh":
@@ -4914,11 +4987,35 @@ class Retminal:
             w += 2 if self._is_core_emoji(o) else 1
         return w
 
+    _SECRET_FIELDS = {"password", "pass", "mdp", "cle", "key", "token", "secret"}
+    _SECRET_MASK = "*****"
+
+    def _is_secret_field(self, key):
+        return str(key).lower() in self._SECRET_FIELDS
+
+    def _is_token_ref(self, v):
+        return "§§" in str(v)
+
+    def _mask_value(self, v, key=None):
+        s = str(v)
+        if not s:
+            return s
+        if (key is not None and self._is_secret_field(key)) or self._is_token_ref(s):
+            return self._SECRET_MASK
+        return s
+
+    def _set_input_secret(self, on):
+        try:
+            self.input_entry.config(show="•" if on else "")
+        except Exception:
+            pass
+
     def _config_render(self):
         try:
             if self._cfg_input:
                 self._config_render_input()
                 return
+            self._set_input_secret(False)
             self._cfg_rows = self._config_build_rows()
             if self._cfg_rows:
                 self._cfg_sel = max(0, min(self._cfg_sel, len(self._cfg_rows) - 1))
@@ -4953,14 +5050,23 @@ class Retminal:
             inp = self._cfg_input
             self.text.delete("sysmon", "end")
             ins = self.text.insert
+            cur_key = inp["fields"][inp["i"]][0] if inp["i"] < len(inp["fields"]) else None
+            self._set_input_secret(self._is_secret_field(cur_key))
             ins("end", "\n  ✏  " + inp["title"] + "\n\n", "cyan")
             for j, (key, label) in enumerate(inp["fields"]):
                 if j < inp["i"]:
+                    val = inp["vals"].get(key) or ""
                     ins("end", "    " + label + " : ", "dim")
-                    ins("end", (inp["vals"].get(key) or "(vide)") + "\n", "out")
+                    if not val:
+                        ins("end", "(vide)\n", "dim")
+                    elif self._is_secret_field(key) or self._is_token_ref(val):
+                        ins("end", self._SECRET_MASK + "\n", "dim")
+                    else:
+                        ins("end", val + "\n", "out")
                 elif j == inp["i"]:
                     ins("end", "  ▸ " + label + " : ", "bright")
-                    ins("end", "tape ta reponse en bas + Entree\n", "cyan")
+                    hint = "tape ta reponse en bas (cachee) + Entree" if self._is_secret_field(key) else "tape ta reponse en bas + Entree"
+                    ins("end", hint + "\n", "cyan")
                 else:
                     ins("end", "    " + label + " : ...\n", "dim")
             ins("end", "\n  [Entree] valider le champ   ·   [Echap] annuler\n", "dim")
@@ -4970,16 +5076,55 @@ class Retminal:
             pass
 
     # ---- navigation ----
+    def _cfg_actionable(self, i):
+        rows = getattr(self, "_cfg_rows", [])
+        return 0 <= i < len(rows) and bool(rows[i].get("fn") or rows[i].get("del"))
+
+    def _cfg_first_actionable(self, start=0, step=1):
+        rows = getattr(self, "_cfg_rows", [])
+        n = len(rows)
+        for k in range(n):
+            i = (start + k * step) % n
+            if self._cfg_actionable(i):
+                return i
+        return start if 0 <= start < n else 0
+
     def _cfg_move(self, delta):
         if self._cfg_input or not getattr(self, "_cfg_rows", None):
             return
-        self._cfg_sel = max(0, min(len(self._cfg_rows) - 1, self._cfg_sel + delta))
+        self._cfg_del_confirm = None
+        rows = self._cfg_rows
+        n = len(rows)
+        i = self._cfg_sel
+        for _ in range(n):
+            i = (i + delta) % n
+            if self._cfg_actionable(i):
+                self._cfg_sel = i
+                break
+        self._config_render()
+
+    def _cfg_jump(self, ks):
+        if self._cfg_input or not getattr(self, "_cfg_rows", None):
+            return
+        self._cfg_del_confirm = None
+        n = len(self._cfg_rows)
+        if ks == "Home":
+            self._cfg_sel = self._cfg_first_actionable(0, 1)
+        elif ks == "End":
+            self._cfg_sel = self._cfg_first_actionable(n - 1, -1)
+        elif ks == "Prior":
+            self._cfg_sel = self._cfg_first_actionable(max(0, self._cfg_sel - 5), -1)
+        elif ks == "Next":
+            self._cfg_sel = self._cfg_first_actionable(min(n - 1, self._cfg_sel + 5), 1)
         self._config_render()
 
     def _cfg_open(self, key):
         self._cfg_view = key
         self._cfg_sel = 0
         self._cfg_msg = ""
+        self._cfg_del_confirm = None
+        self._config_render()
+        self._cfg_sel = self._cfg_first_actionable(0, 1)
         self._config_render()
 
     def _cfg_back(self):
@@ -5009,6 +5154,12 @@ class Retminal:
         target = rows[self._cfg_sel].get("del")
         if not target:
             return
+        if getattr(self, "_cfg_del_confirm", None) != self._cfg_sel:
+            self._cfg_del_confirm = self._cfg_sel
+            self._cfg_msg = "⚠  Re-appuie sur Suppr pour confirmer la suppression  ·  (une autre touche annule)"
+            self._config_render()
+            return
+        self._cfg_del_confirm = None
         name, idx = target
         data = self._cfg_load_raw(name)
         if 0 <= idx < len(data):
@@ -6984,13 +7135,13 @@ class Retminal:
         nm = parts[1]
         if nm in entries:
             self._insert("  " + nm + " : ", "out")
-            self._insert(entries[nm] + "\n", "bright")
+            self._insert("*****", "dim")
             try:
                 self.root.clipboard_clear()
                 self.root.clipboard_append(entries[nm])
-                self._insert("  (copie dans le presse-papier)\n", "dim")
+                self._insert("   (copie dans le presse-papier — colle-le avec Cmd+V)\n", "dim")
             except Exception:
-                pass
+                self._insert("\n", "dim")
         else:
             self._insert("  Pas trouve : " + nm + "   (tape 'coffre' pour la liste)\n", "err")
         self._write_prompt()
@@ -7147,6 +7298,7 @@ class Retminal:
     def _cycle_target(self, event=None):
         if self._sysmon_on:
             return "break"
+        self._hide_suggestions()
         if self.running or self.claude_mode or len(self.targets) <= 1:
             return "break"
         self._switch_to_target((self.target_index + 1) % len(self.targets))
