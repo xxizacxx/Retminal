@@ -1,0 +1,12 @@
+[
+    {
+        "alias": "connect",
+        "exe": "ssh root@ENV§§.env:VPS_HOST --password ENV§§.env:VPS_PASSWORD",
+        "desc": "Connecte a mon VPS"
+    },
+    {
+        "alias": "ip",
+        "exe": "ipconfig",
+        "desc": "affiche ta configuration reseau"
+    }
+]

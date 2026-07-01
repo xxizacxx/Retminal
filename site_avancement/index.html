@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="15">
+<title>📊 Avancement Retminal</title>
+<style>
+  :root{
+    --bg:#0a0e0a; --bg2:#0f150f; --bar:#070a07;
+    --green:#5df58a; --bright:#8affb0; --dim:#3c7a55;
+    --cyan:#5fe3f5; --orange:#d8825f; --red:#f56d6d; --border:#1c3a26;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--green);
+    font-family:Consolas,"Courier New",monospace;}
+  body{padding:0 0 40px;}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0),rgba(0,0,0,0) 2px,rgba(0,0,0,.13) 3px);}
+  .bar{background:var(--bar);border-bottom:1px solid var(--border);padding:8px 16px;
+    display:flex;align-items:center;gap:8px;position:sticky;top:0;z-index:50;}
+  .dot{width:13px;height:13px;border-radius:50%}
+  .r{background:#ff5f56}.y{background:#ffbd2e}.g{background:#27c93f}
+  .bartitle{flex:1;text-align:center;color:var(--dim);font-size:13px}
+  .wrap{max-width:920px;margin:0 auto;padding:0 18px}
+  h1{font-size:27px;color:var(--bright);text-shadow:0 0 12px rgba(93,245,138,.5);margin:26px 0 2px}
+  .sub{color:var(--dim);margin:0 0 18px;font-size:13px}
+  .prog{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+    padding:16px;margin:10px 0 24px}
+  .pcount{font-size:34px;color:var(--bright);font-weight:bold}
+  .pcount small{font-size:16px;color:var(--dim)}
+  .track{height:18px;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;
+    overflow:hidden;margin-top:10px}
+  .fill{height:100%;background:linear-gradient(90deg,var(--green),var(--cyan));
+    box-shadow:0 0 14px rgba(93,245,138,.5);transition:width .6s;border-radius:10px}
+  .cat{margin:26px 0 8px;font-size:18px;color:var(--bright);
+    border-left:4px solid var(--green);padding-left:11px}
+  .row{display:flex;align-items:center;gap:10px;background:var(--bg2);
+    border:1px solid var(--border);border-radius:9px;padding:10px 13px;margin:6px 0}
+  .row.done{border-color:#1c5a30}
+  .row.wip{border-color:var(--orange);box-shadow:0 0 12px rgba(216,130,95,.2)}
+  .badge{font-size:11px;font-weight:bold;padding:3px 9px;border-radius:20px;white-space:nowrap}
+  .b-done{background:#123b1e;color:var(--green)}
+  .b-wip{background:#3a2410;color:var(--orange)}
+  .b-todo{background:#1a1a1a;color:var(--dim)}
+  .nm{flex:1;color:var(--bright);font-size:14px}
+  .row.todo .nm{color:var(--dim)}
+  .nt{color:var(--dim);font-size:12px}
+  .foot{text-align:center;color:var(--dim);font-size:12px;margin-top:26px}
+  .blink{animation:bl 1.4s steps(1) infinite}@keyframes bl{50%{opacity:.25}}
+</style>
+</head>
+<body>
+<div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+  <span class="bartitle">root@retminal — avancement (WiFi)</span></div>
+<div class="wrap">
+  <h1>&gt; AVANCEMENT RETMINAL <span class="blink">▮</span></h1>
+  <p class="sub">Claude code en direct. Cette page se rafraichit toute seule toutes les 15 secondes.</p>
+  <div class="prog" id="msgbox" style="border-color:var(--orange);background:#15100a">
+    <div style="color:var(--orange);font-weight:bold;font-size:15px">📣 MESSAGES DE CLAWD</div>
+    <div id="msg" style="color:var(--bright);margin-top:8px;font-size:14px;line-height:1.6"></div>
+    <button onclick="sendGo()" style="margin-top:14px;width:100%;padding:16px;font-family:inherit;
+      font-size:20px;font-weight:bold;cursor:pointer;border-radius:12px;border:2px solid var(--green);
+      background:linear-gradient(90deg,#123b1e,#0f2818);color:var(--bright);
+      box-shadow:0 0 16px rgba(93,245,138,.3);transition:.15s"
+      onmouseover="this.style.boxShadow='0 0 26px rgba(93,245,138,.6)'"
+      onmouseout="this.style.boxShadow='0 0 16px rgba(93,245,138,.3)'">▶  GO — continue !</button>
+    <div id="gomsg" style="color:var(--dim);font-size:12px;margin-top:8px;text-align:center"></div>
+  </div>
+  <div class="prog">
+    <div class="pcount"><span id="done">0</span><small> / <span id="total">0</span> faits</small></div>
+    <div class="track"><div class="fill" id="fill" style="width:0%"></div></div>
+  </div>
+  <div id="list"></div>
+  <div class="foot">🟢 Fait &nbsp;·&nbsp; 🟠 En cours &nbsp;·&nbsp; ⬜ A faire &nbsp;—&nbsp; fait avec amour par Clawd 🐾</div>
+</div>
+<script>
+// status: "done" | "wip" | "todo"
+const F = [
+  ["Base & systeme", [
+    ["Connexion serveur en arriere-plan", "done"],
+    ["File d'attente de commandes", "done"],
+    ["Barres de progression + couleurs (ANSI)", "done"],
+    ["Tokens en §§ (au lieu de //)", "done"],
+    ["UNE commande par onglet (multitache)", "done"],
+    ["Renommer onglets + menus clic-droit", "done"],
+    ["Terminal local = UBUNTU (WSL) + Ctrl+ù pour changer de shell", "done"],
+    ["nano/vim/edit -> editeur ASCII (fichiers locaux + VPS)", "done"],
+    ["Scripts interactifs : input() marche (clavier -> stdin du prog)", "done"],
+    ["Input surligne + echo live (ce que tu tapes s'affiche en direct)", "done"],
+    ["customcommands : champ \"shell\" (force un alias dans cmd/ubuntu/ps)", "done"],
+    ["Editeur facon CARNET : fond clair, Rety ecrit, edition live", "done"],
+    ["Version V 6.7 affichee partout", "done"],
+  ]],
+  ["Commandes pratiques", [
+    ["open <site> — ouvrir un site", "done"],
+    ["password / mdp — generateur", "done"],
+    ["run <app> — lancer une appli", "done"],
+    ["calc — calculatrice (19 + 3)", "done"],
+    ["note / notes — pense-bete", "done"],
+    ["sysinfo — Gestionnaire des taches plein ecran", "done"],
+    ["Commandes perso multi-etapes", "done"],
+    ["Site d'idees (localhost)", "done"],
+    ["Commandes FAVORITES (fav)", "done"],
+    ["RECHERCHE de toutes les commandes (search)", "done"],
+    ["COFFRE-FORT (mots de passe chiffres)", "done"],
+    ["ping joli (n'importe quel site/IP)", "done"],
+    ["Page de PARAMETRES (+ mode stream)", "done"],
+  ]],
+  ["VPS / Serveur (a tester sur ton serveur)", [
+    ["qui — qui est connecte au VPS", "done"],
+    ["deploy — envoyer un fichier sur le VPS", "done"],
+    ["download — recuperer un fichier du VPS", "done"],
+    ["logs en direct du serveur", "done"],
+    ["editvps — editer un fichier du VPS", "done"],
+    ["Moniteur serveur (= sysinfo, plein ecran)", "done"],
+    ["Explorateur de fichiers VPS", "done"],
+    ["backup (.tar.gz) + restaurer", "done"],
+    ["Gerer les services (start/stop/restart)", "done"],
+  ]],
+  ["Claude / IA", [
+    ["convos — gestionnaire de conversations", "done"],
+    ["ask — question rapide a Clawd", "done"],
+    ["explique — Clawd explique l'erreur", "done"],
+    ["resume — resume du jour", "done"],
+  ]],
+];
+// MESSAGE pour xxizacxx (mis a jour par Claude). Mets "" si rien.
+const MESSAGE = "🎛️ NOUVEAU : la commande 'config' ! Une grande PAGE DE CONFIG plein ecran (fleches + Entree) pour TOUT regler sans toucher aux fichiers : tes Reglages, tes Serveurs VPS (ajouter/supprimer), des Cles SSH (te connecter sans mot de passe), tes Shells par defaut, le Style (vert/bleu/orange, gardé au redemarrage), tes Alias, verifier/installer les Dependances, Mettre a jour (git+recompile) et Verifier que tout va bien. Tape 'config' ! ----- 🗣️ RAPPEL : commande 'say' (ou 'dire') pour afficher du texte JOLI a coup sur ! Ex: say §a**Coucou** xxizacxx ! -> Coucou en vert gras. Et maintenant 'echo' avec du markdown/couleur (genre echo §4**How are you ?**) s'affiche direct en joli SANS passer par bash (avant, bash transformait les ** et ? en noms de fichiers, c'etait le bug). Pour les vrais echos (echo *.txt, echo $HOME), ca passe toujours par bash normalement. ----- 🎨 RAPPEL : (1) APERCU EN DIRECT : quand tu ecris du markdown (**gras**, *italique*, `code`, # Titre) dans la boite ou dans l'editeur, une petite barre 'apercu' au-dessus te montre le rendu EN DIRECT pendant que tu tapes ! La boite garde les ** (normal, c'est pour editer), et l'apercu montre le joli. (2) COULEURS MINECRAFT : tu peux colorer ton texte avec les codes §1 §2 ... §a §b §c (comme dans Minecraft, juste les couleurs) ! Ex: §aVert §cRouge §eJaune. Le § est sur ta touche !. Ca marche dans l'apercu ET dans la sortie. ----- ✨ RAPPEL : le MARKDOWN s'affiche en joli dans le terminal ! Quand une sortie contient **du gras**, *de l'italique* ou `du code` (par exemple quand tu fais cat sur un fichier .md), Retminal l'affiche en vrai gras / italique / code au lieu de montrer les etoiles. Tu peux le couper/rallumer avec la commande 'markdown' (ou 'md'), c'est dans les Parametres. ----- 📂 RAPPEL : AIDE A LA SAISIE DES CHEMINS ! Quand tu tapes un dossier ou un fichier (ex: cat , cd /home/, nano mon...), une petite liste s'affiche au-dessus de la boite avec 📁 les dossiers et 📄 les fichiers. Tu navigues avec les fleches, Tab (ou clic) pour choisir, et si tu choisis un dossier ca te montre direct ce qu'il y a dedans ! Ca marche sur ton PC (Ubuntu), et sur le VPS quand tu es connecte. ----- 📑 RAPPEL : dans le CARNET tu peux CHANGER D'ONGLET (avant c'etait bloque) ! L'onglet affiche 'Carnet' quand tu edites, tu peux ouvrir un autre onglet / revenir, et ton carnet revient INTACT avec tes modifs. ----- 🔵 RAPPEL : l'editeur CARNET est en mode NOIR/BLEU ! Le style original (sombre facon hacker) mais avec des teintes BLEUES au lieu du vert. Quand tu ouvres un fichier (nano/editvps), TOUT le terminal devient bleu nuit d'un coup : titre, onglet, page, input, barre du bas. La boite de Rety a retrouve son CONTOUR (┌── CARNET ──┐ en bleu clair) et la barre des onglets suit aussi le theme (fini le vert moche). Rety (turquoise) tient son petit carnet, et ta ligne choisie est surlignee en bleu. Quand tu quittes (Echap), ca revient en vert tout seul. Tu ecris DIRECT dans la ligne : Entree = nouvelle ligne, Ctrl+Entree = ligne suivante, Ctrl+S = sauver, Ctrl+K = effacer. ✅ Teste en vrai : photo de l'ecran (tout bien bleu + contour visible) + vraie sauvegarde (bon fichier + retour au vert). ----- 🐍 RAPPEL V6.7 : tes scripts Python avec input() marchent, et terminal local = UBUNTU (Ctrl+ù change de shell). Tape 'help'. GG xxizacxx ! 🚀🔵";
+document.getElementById("msg").textContent = MESSAGE;
+function sendGo(){
+  document.getElementById("gomsg").textContent = "Envoi...";
+  fetch("/go",{method:"POST"}).then(r=>r.json()).then(d=>{
+    document.getElementById("gomsg").textContent = "✅ GO envoye (#"+d.count+") ! Claude continue dans ~1-2 min. (la page se rafraichit toute seule)";
+  }).catch(()=>{ document.getElementById("gomsg").textContent = "❌ Erreur (le serveur est peut-etre eteint)."; });
+}
+let done = 0, total = 0;
+const list = document.getElementById("list");
+for (const [cat, items] of F) {
+  const h = document.createElement("div"); h.className = "cat"; h.textContent = cat;
+  list.appendChild(h);
+  for (const [name, st] of items) {
+    total++; if (st === "done") done++;
+    const row = document.createElement("div"); row.className = "row " + st;
+    const badge = st === "done" ? '<span class="badge b-done">🟢 FAIT</span>'
+      : st === "wip" ? '<span class="badge b-wip">🟠 EN COURS</span>'
+      : '<span class="badge b-todo">⬜ A FAIRE</span>';
+    row.innerHTML = badge + '<span class="nm">' + name + '</span>';
+    list.appendChild(row);
+  }
+}
+document.getElementById("done").textContent = done;
+document.getElementById("total").textContent = total;
+document.getElementById("fill").style.width = Math.round(done / total * 100) + "%";
+</script>
+</body>
+</html>

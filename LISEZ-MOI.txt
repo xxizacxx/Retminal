@@ -1,0 +1,400 @@
+==================================================
+  RETMINAL V 6.7 (Ultra)  -  par xxizacxx
+==================================================
+
+C'est quoi ?
+------------
+Un terminal style "hacker" (fond noir, texte vert qui brille).
+Par DEFAUT il parle a UBUNTU (Linux) sur ton PC, grace a WSL !
+Donc tu tapes des vraies commandes Linux : ls, cat, apt, python3,
+nano, grep, git... comme sur un vrai serveur.
+
+Changer de shell (Ubuntu / cmd.exe / PowerShell) :
+--------------------------------------------------
+  Appuie sur  Ctrl + ù  pour tourner entre les shells de ton PC :
+      Ubuntu (Linux)  ->  cmd.exe (Windows)  ->  PowerShell  -> ...
+  (S'il n'y a qu'un seul shell, Retminal te le dit.)
+  Tu peux aussi taper le nom direct :  ubuntu , cmd , powershell
+  La commande  shells  liste tous les shells et montre l'actuel.
+  Le shell ou tu es est ECRIT EN BAS (ex: " Local · Ubuntu ") et le
+  prompt change ( user@ubuntu:~$  pour Linux,  root@retminal:..$  pour
+  cmd ). Tu demarres dans ton dossier Ubuntu  /home/user .
+
+Editer un fichier (nano) :
+--------------------------
+  Les programmes PLEIN ECRAN de Linux (nano, vim, top, htop, less...)
+  ont besoin d'un vrai terminal, donc ils ne marchent PAS directement
+  dans Retminal. MAIS : quand tu tapes  nano <fichier>  (ou vim, vi,
+  edit), Retminal ouvre SON editeur ASCII a la place ! Ca marche pour
+  tes fichiers Ubuntu, Windows, ET sur le VPS quand tu es connecte.
+      nano test.txt      -> ouvre/cree test.txt dans le carnet
+  C'est un CARNET : fond clair (comme du papier), Rety dessine en haut,
+  et la ligne choisie est SURLIGNEE en jaune. Tu ecris direct dedans !
+      Fleches      = changer de ligne (son texte va dans la barre)
+      Entree       = creer une NOUVELLE ligne
+      Ctrl+Entree  = aller a la ligne suivante (sans en creer)
+      Ctrl+S       = SAUVER     Ctrl+K = effacer la ligne
+      Echap        = quitter (te demande si pas sauve)
+  Pour surveiller le PC en live, utilise  sysinfo  (au lieu de htop).
+
+Les scripts qui posent une question (input) :
+---------------------------------------------
+  Si tu lances un script qui demande une reponse, par exemple :
+      python3 script.py   (avec  nom = input("Ton Nom : ")  dedans)
+  ... le script s'arrete et ATTEND. Tape ta reponse dans la barre du
+  bas + Entree : elle est envoyee au script, qui continue !
+      Ton Nom : xxizacxx
+      Bonjour xxizacxx !
+  Ca marche pour les mots de passe (sudo), les questions oui/non, etc.
+  Ctrl+D = "fin de saisie" (EOF) si un programme attend la fin.
+  (Quand un programme attend une reponse, ce que tu tapes va A LUI,
+   pas dans la file d'attente.)
+
+Les onglets (plusieurs terminaux) :
+-----------------------------------
+  En haut, sous la barre du titre, il y a des ONGLETS. Chaque onglet
+  est un terminal SEPARE (son dossier, sa connexion, son Clawd).
+      Clic sur  +            -> nouvel onglet     (ou Ctrl+T)
+      Clic sur un onglet     -> y aller           (ou Ctrl+Tab)
+      Clic sur la croix ✕    -> fermer l'onglet   (ou Ctrl+W)
+  L'onglet montre ce qu'il fait : "Local", "Clawd", ou l'IP du serveur.
+      Clic DROIT sur un onglet  -> menu (Renommer / Fermer / Nouvel onglet)
+      Double-clic sur un onglet -> renommer direct
+  Clic DROIT dans le terminal -> menu (Copier / Couper / Coller / Tout
+  selectionner / Effacer l'ecran).
+  UNE COMMANDE PAR ONGLET : tu peux ouvrir un nouvel onglet ou changer
+  d'onglet MEME si une commande tourne (genre un gros truc sur le VPS).
+  Elle continue toute seule en arriere-plan dans SON onglet, et tu
+  retrouves sa sortie quand tu reviens dessus. Tu peux donc lancer
+  plusieurs commandes en meme temps, une dans chaque onglet !
+  (On ne peut pas changer d'onglet seulement pendant une connexion en
+  cours ou pendant que Clawd reflechit.)
+
+File d'attente de commandes (queue) :
+-------------------------------------
+  Pas besoin d'attendre qu'une commande finisse pour taper la suivante !
+  Tape-les a la suite et appuie Entree : elles se mettent EN FILE D'ATTENTE
+  et se lancent toutes seules, UNE PAR UNE, dans l'ordre.
+      ex : ping google.com   (Entree)
+           dir               (Entree)
+           ipconfig          (Entree)
+  Les commandes en attente s'affichent EN HAUT A DROITE (dans le bandeau),
+  numerotees dans l'ordre. Quand ping a fini, dir part tout seul, puis
+  ipconfig. Magique !
+  Ca marche en Local ET sur un serveur.
+  Pour TOUT annuler (vider la file + stopper la commande en cours) :
+  appuie sur  Ctrl+C  OU tape la commande   clf
+  (clf marche meme pendant qu'une commande tourne : elle agit tout de suite).
+
+Barres de progression et compatibilite :
+----------------------------------------
+  Retminal comprend maintenant les "barres de chargement" qui se mettent a
+  jour sur la MEME ligne (le caractere \r) : pip, 7z, les telechargements,
+  l'extraction d'archives... -> la barre BOUGE proprement au lieu de
+  spammer plein de lignes. Les codes couleur (ANSI) sont nettoyes (fini le
+  charabia genre [32m). (Pour l'instant en Local sur ton PC ; sur un
+  serveur ce sera pour plus tard si tu veux.)
+  Les commandes avec  //  (URLs http:// , division Python i//5 , chemins...)
+  marchent normalement : le // est totalement libre. Les tokens utilisent
+  maintenant  §§  au lieu de  //  (ex: ENV§§.env:VPS_HOST) -- voir plus bas.
+
+Pour le lancer (mode test) :
+----------------------------
+  python retminal.py
+
+Pour fabriquer le Retminal.exe (a double-cliquer) :
+---------------------------------------------------
+  Double-clique sur  build.bat
+  Attends un peu...
+  Ton fichier sera dans le dossier :  dist\Retminal.exe
+
+Les commandes speciales de Retminal :
+-------------------------------------
+  help          affiche l'aide
+  about         infos sur Retminal
+  connect       te connecte en SSH a ton serveur VPS
+  claude        discute avec Claude Code, DANS Retminal
+  clear / cls   nettoie l'ecran
+  clf           vide la file d'attente + stoppe la commande en cours
+  open <site>   ouvre un site dans ton navigateur (ex: open example.com)
+  sysinfo       GESTIONNAIRE DES TACHES plein ecran (comme celui de
+                Windows mais en ASCII) : CPU/RAM/disque en DIRECT +
+                mini-graphes + LISTE DES PROCESSUS triee par memoire.
+                [q] quitter, [espace] pause
+  password [n]  genere un mot de passe solide (et le copie) - aussi: mdp
+  run <app>     lance une appli de ton PC (ex: run notepad, run calc)
+  qui           qui est connecte sur ton serveur (une fois connecte)
+  rename <nom>  renomme l'onglet (ou clic-droit / double-clic dessus)
+  calc 19+3     calculatrice (ou tape direct : 19 + 3)
+  note <texte>  pense-bete  ·  'notes' pour les voir (notes clear = vider)
+  fav / favs    commandes favorites (fav add ..., fav 1 pour lancer)
+  search <mot>  cherche dans TOUTES les commandes
+  ping <site>   ping joli (latence en barres de couleur)
+  coffre        coffre-fort de mots de passe (chiffre, mot de passe maitre)
+  settings      page de PARAMETRES (fenetre) + le MODE STREAM
+  stream        active/coupe vite le mode stream (sans ouvrir la fenetre)
+  ask <quest.>  pose une question rapide a Clawd (reponse direct, sans mode)
+  explique      Clawd regarde ton terminal et explique la derniere erreur
+  resume        Clawd te fait un petit resume rigolo de ta journee
+  convos        GESTIONNAIRE de conversations Clawd (plein ecran) : fleches
+                pour bouger, [Entree] REPRENDRE une conv (Clawd se souvient !),
+                [x] supprimer, [q] quitter
+  exit / quit   ferme Retminal
+
+  MODE STREAM (settings / stream) :
+  ---------------------------------
+    Quand tu fais un live/stream, active le mode stream : Retminal CACHE
+    tes infos perso dans le terminal (ton IP, tes mots de passe, tes
+    tokens sk-ant...) -> remplaces par des points ••••••. Comme ca
+    personne ne vole tes secrets a l'ecran ! Re-tape 'stream' pour couper.
+
+Les commandes du SERVEUR VPS (quand tu es connecte avec connect) :
+------------------------------------------------------------------
+  deploy <fic>    envoie un fichier de ton PC vers le VPS
+                  (sans argument : une fenetre s'ouvre pour choisir)
+  download <fic>  recupere un fichier du VPS vers ton PC
+  logs [svc]      les derniers logs du serveur. 'logs -f' = EN DIRECT
+                  (60s). 'logs nginx' = les logs du service nginx.
+  editvps <fic>   EDITEUR de fichier du VPS facon CARNET (fond clair,
+                  Rety ecrit dessus), en plein ecran (pas de fenetre).
+                  Voir les touches plus bas (section "Editer un fichier").
+  moniteur        Le sysinfo mais pour ton SERVEUR ! MEME interface plein
+                  ecran (pas une fenetre) : CPU, RAM, disque, uptime,
+                  charge, top processus + services qui tournent. En DIRECT.
+                  [q] ou [Echap] quitter, [espace] pause.
+  explore         EXPLORATEUR de fichiers du VPS, en PLEIN ECRAN dans le
+                  terminal (pas de fenetre !) avec des boutons ASCII.
+                  Fleches = bouger, [Entree] = ouvrir/telecharger,
+                  [<-] parent, [d] telecharger, [x] suppr, [q] quitter.
+  backup [dir]    SAUVEGARDE un dossier du VPS en .tar.gz et le ramene
+                  sur ton PC (dossier 'backups'). Pour remettre une
+                  sauvegarde :  backup restore <archive.tar.gz> [dossier]
+  services        liste les services qui tournent. Pour agir :
+                  services restart nginx   (ou start / stop / status)
+  qui             qui est connecte sur le serveur
+
+  (Ces commandes-la ont besoin que tu sois CONNECTE au serveur : tape
+   'connect' d'abord. Si tu n'es pas connecte, Retminal te le rappelle.)
+
+Discuter avec Claude Code (commande claude) :
+---------------------------------------------
+  Tape  claude  et Retminal se met en "mode Claude" : tout devient
+  ORANGE, et en haut tu vois Clawd (orange) + Rety (vert) ensemble.
+  A partir de la, tout ce que tu ecris part a Claude Code, et sa
+  reponse s'affiche ICI, dans Retminal (pas dans une autre fenetre).
+  Clawd repond comme ca :   Clawd : <sa reponse>
+  Les reponses de Clawd ont les effets de texte : **gras**, *italique*,
+  `code`, titres, listes, et les emojis s'affichent EN COULEUR.
+
+  Coller une IMAGE a Clawd (quand Clawd est sur ton PC) :
+      Fais une capture d'ecran (ou copie une image), puis dans la barre
+      de saisie fais  Ctrl+V . L'image se range dans le dossier
+      "images_collees" et un APERCU s'affiche au-dessus de la barre.
+      Tu peux en coller plusieurs. Sur un apercu :
+        - CLIC sur l'image  -> l'affiche en GRAND (clic ou Echap = fermer)
+        - la croix ✕ (coin, apparait au survol souris) -> retire l'image
+      Ecris ta question (ou rien) + Entree : Clawd VOIT l'image et repond.
+      (Ca marche sur ton PC ; pas quand Clawd est sur un serveur.)
+  Pour revenir au terminal normal : tape  exit  (ou quit).
+
+  Commandes Claude (slash) en mode Claude :
+  TOUTES les commandes /slash de Claude marchent : /help, /compact,
+  /review, /model, /cost, /agents, /mcp... ET celles ajoutees par des
+  plugins ou tes commandes perso. Elles partent direct a Claude Code.
+  Celles-ci sont gerees par Retminal (les commandes "reglages" ne
+  marchent pas en mode sans-fenetre, alors Retminal s'en occupe) :
+      /new            nouvelle conversation (Clawd oublie ce qu'on disait)
+      /clear          pareil + efface l'ecran
+      /model <nom>    change le modele (ex: /model opus, sonnet, haiku)
+      /effort <niv>   regle la reflexion (low/medium/high/xhigh/max)
+      /distant        envoie Clawd sur un serveur VPS de ton choix
+      /local          ramene Clawd sur ton PC
+      /exit           revient a Retminal
+
+  La commande /distant (depuis Clawd sur ton PC) :
+      Tape  /distant  : ca liste tes serveurs (servers.json) avec un numero.
+      Puis  /distant 1  (numero) ou  /distant hello  (un bout du nom) :
+      Retminal connecte Clawd au serveur, et Clawd reapparait LA-BAS
+      (le titre devient root@<serveur>). Tape  /local  pour le ramener.
+      (S'il y a un seul serveur, /distant l'envoie direct.)
+  (/model et /effort tout seuls montrent le reglage actuel + les choix.
+   Le reglage s'applique aux prochains messages de Clawd.)
+
+  NOTE : Claude Code doit etre CONNECTE la ou il tourne. Sur ton PC,
+  c'est bon (ton compte). Sur un serveur, il faut une cle API.
+
+  Brancher Clawd SUR le serveur - 2 facons (choisis-en une) :
+
+  FACON 1 - GRATUITE, avec ton abonnement Claude (recommandee) :
+    1) Sur TON PC, ouvre un terminal et tape :   claude setup-token
+    2) Ton navigateur s'ouvre -> connecte-toi -> ca te donne un long code
+    3) Ouvre le fichier  .env  et colle le code :
+         CLAUDE_CODE_OAUTH_TOKEN=<le long code>
+    4) Dans Retminal, connecte-toi au serveur (Shift+Tab) et tape claude.
+    (Le code marche 1 an, apres tu refais setup-token.)
+
+  FACON 2 - cle API, PAYANTE a l'usage (demande a un adulte) :
+    https://console.anthropic.com -> API Keys -> Create Key
+    puis dans .env :   ANTHROPIC_API_KEY=sk-ant-...
+
+  Retminal envoie ton code/cle au serveur de facon CHIFFREE (par le SSH).
+  Il reste dans TON .env, jamais dans le code. Garde-le SECRET (ne le
+  donne a personne, jamais sur GitHub).
+  Pas envie de configurer ? Tape /local pour le Clawd de ton PC (gratuit).
+
+  Le texte de Clawd s'ecrit petit a petit (animation machine a ecrire).
+  Tu vois TOUT ce que Clawd fait, en direct, facon Claude Code :
+      ● Write(app.py)       (un fichier qu'il ecrit)
+        | <le code>         (le code, avec une barre a gauche)
+      ● Bash(ls -la)        (une commande qu'il lance)
+        L <le resultat>     (ce que ca a donne)
+  Clawd a les PLEINS POUVOIRS : il peut creer/modifier des fichiers et
+  lancer des commandes tout seul. Fais gaffe a ce que tu lui demandes !
+
+  Ca marche aussi quand tu es connecte a un serveur (Clawd travaille
+  alors SUR le serveur). Il faut que la commande 'claude' soit installee
+  la ou tu es (ton PC, ou le serveur). Retminal garde la conversation.
+
+La commande connect (serveur VPS) :
+-----------------------------------
+  Tape  connect  et Retminal te connecte direct dans ton serveur.
+  Quand tu es connecte, le prompt devient ROUGE/CYAN avec un  #
+  et tout ce que tu tapes part SUR le serveur (ls, cd, apt...).
+  Pour revenir sur ton PC : tape  quithost  (ou disconnect).
+
+  *** Connexion en arriere-plan (background) ***
+  Une fois connecte a un serveur, la connexion RESTE OUVERTE en fond :
+    - Elle ne se coupe JAMAIS toute seule (un petit ping la garde en vie).
+    - Fermer l'onglet ou revenir en Local (Shift+Tab) ne la coupe PAS.
+    - Si tu te reconnectes au meme serveur, c'est REUTILISE direct
+      (instantane, pas besoin d'attendre ni de re-taper le mot de passe).
+  La connexion se ferme seulement quand :
+    - tu tapes  quithost  (ferme ce serveur-la), ou
+    - tu fermes la fenetre de Retminal (ferme TOUTES les connexions).
+
+  Astuce : quand tu es connecte au serveur, tu peux lancer une commande
+  sur TON PC (au lieu du serveur) en mettant  in§§  devant :
+      in§§dir          -> fait 'dir' sur ton PC
+      in§§ipconfig     -> fait 'ipconfig' sur ton PC
+
+Basculer Local <-> serveurs (Shift+Tab) :
+-----------------------------------------
+  La barre en bas montre ou tu es (" Local " ou le nom du serveur).
+  Appuie sur  Shift+Tab  pour passer de Local a ton VPS (et inversement).
+  Les serveurs sont dans le fichier  servers.json  :
+      [
+        {
+          "name": "Mon VPS",                     <- le nom affiche
+          "ip": "ENV§§.env:VPS_HOST",            <- IP brute ou jeton
+          "password": "ENV§§.env:VPS_PASSWORD",  <- mdp brut ou jeton
+          "user": "ENV§§.env:VPS_USER",          <- user brut ou jeton
+          "folder": "/var/www"                   <- (FACULTATIF) dossier de depart
+        }
+      ]
+  Tu peux en mettre plusieurs, Shift+Tab tourne entre Local et chacun.
+
+  "folder" est facultatif : si tu le mets, la session demarre dans CE
+  dossier au lieu du home. Si le dossier n'existe pas, ca retombe sur le home.
+  (Laisse "" ou enleve la ligne pour demarrer dans le home.)
+
+  Apres avoir modifie servers.json, tape  reload  (ca recharge aussi
+  customcommands.json). Il faut etre en Local (pas connecte) pour reload.
+
+  Les infos du serveur sont dans le fichier  .env  (PAS dans le code) :
+      VPS_HOST, VPS_USER, VPS_PASSWORD, VPS_PORT
+  Garde toujours le fichier .env a cote de Retminal.exe.
+  (Il faut le module python "paramiko" : pip install paramiko)
+
+Ajouter tes propres commandes (customcommands.json) :
+-----------------------------------------------------
+  Ouvre le fichier  customcommands.json  et ajoute une "carte" :
+      {
+          "alias": "ip",          <- le mot que tu tapes
+          "exe": "ipconfig",      <- ce que ca lance vraiment
+          "desc": "ma config",    <- petite explication (facultatif)
+          "shell": "cmd"          <- dans quel shell (facultatif)
+      }
+  Mets une virgule entre chaque carte. Exemples deja dedans :
+      ip       -> ipconfig
+      serveur  -> ping 1.2.3.4
+      site     -> start https://example.com
+
+  Le champ  "shell"  (facultatif) dit dans QUEL shell l'alias tourne,
+  meme si tu es ailleurs ! Pratique car ipconfig n'existe que sur
+  Windows, et apt que sur Ubuntu. Valeurs possibles :
+      "shell": "cmd"         (ou "windows")  -> cmd.exe
+      "shell": "ubuntu"      (ou "linux")    -> Ubuntu (WSL)
+      "shell": "powershell"                  -> PowerShell
+  Exemples :
+      { "alias": "ip",  "exe": "ipconfig",            "shell": "cmd" }
+      { "alias": "maj", "exe": ["apt update",
+                               "apt upgrade -y"],     "shell": "ubuntu" }
+  Quand un alias a un "shell", Retminal l'affiche : -> [Ubuntu] apt update
+  (Si tu ne mets pas "shell", l'alias tourne dans le shell actuel.)
+  (Tu peux aussi ecrire le champ  "class"  a la place de  "shell".)
+
+  Apres avoir modifie le fichier, tape  reload  dans Retminal
+  (pas besoin de tout fermer).
+
+  Une commande peut en lancer PLUSIEURS a la suite, 2 facons :
+    - avec des virgules :
+        "exe": "echo un, echo deux, echo trois"
+    - avec une liste (plus propre) :
+        "exe": ["echo un", "echo deux", "echo trois"]
+  Retminal les enchaine dans l'ordre (un, puis deux, puis trois).
+
+  Note : les noms deja pris (help, exit, clear...) sont proteges :
+  une carte avec ces noms est ignoree, pour ne pas casser Retminal.
+
+  EXCEPTION : la carte "connect" sert a CONFIGURER la connexion SSH.
+  Mets dedans la ligne ssh avec les jetons, ex :
+      "exe": "ssh root@ENV§§.env:VPS_HOST --password ENV§§.env:VPS_PASSWORD"
+  Retminal lit le host, le user et le mot de passe la-dedans (ou dans
+  .env si la carte n'existe pas), puis se connecte avec son vrai moteur SSH.
+
+Les jetons de fichier (comme "cat" dans n'importe quelle commande) :
+-------------------------------------------------------------------
+  Tu peux mettre un jeton dans N'IMPORTE QUELLE commande, et Retminal
+  le remplace par le contenu lu dans un fichier. Format :
+
+      TYPE§§FICHIER:ligne!password
+                    ^^^^^ ^^^^^^^^
+        :ligne   = la ligne ou la cle a prendre (facultatif)
+        !password = mot de passe du fichier s'il est protege (facultatif)
+
+  Les 3 types :
+      ENV§§.env:VPS_HOST     -> la valeur de VPS_HOST dans le .env
+      TXT§§notes.txt         -> tout le texte du fichier (le vrai "cat")
+      TXT§§notes.txt:2       -> seulement la ligne 2 du fichier
+      JSON§§data.json:cle    -> une valeur dans un fichier JSON
+
+  Exemples (essaie-les, ils sont dans customcommands.json) :
+      monhost   ->  echo Mon VPS est : ENV§§.env:VPS_HOST
+      note      ->  echo Ma note : TXT§§notes.txt:1
+
+  Ca marche aussi si tu tapes la commande directement :
+      echo ENV§§.env:VPS_HOST
+  Si le fichier ou la cle n'existe pas, Retminal te le dit et ne lance rien.
+
+Astuces :
+---------
+  - Quand tu tapes le debut d'une commande, Retminal te propose les
+    commandes qui vont avec (juste au-dessus de la barre de saisie).
+    Pour te deplacer dedans :
+        Fleches HAUT / BAS  =  changer de selection (ca scrolle tout seul)
+        Molette de la souris =  faire defiler la liste
+        TAB                  =  mettre la commande choisie dans la barre
+        ENTREE               =  lancer la commande choisie
+        Clic                 =  choisir une commande a la souris
+        Echap                =  fermer le menu
+    En bas du menu, un compteur (ex: 12/75) montre ou tu en es.
+    Ca propose TOUTES les commandes : celles de Retminal, tes commandes
+    perso, TOUS les programmes installes sur ton PC (PATH), les commandes
+    /slash de Claude (+ plugins) en mode Claude, et les commandes du
+    serveur quand tu es connecte en SSH.
+  - Fleches HAUT / BAS  =  retrouver tes anciennes commandes
+  - Ctrl + C            =  couper une commande qui tourne
+  - Les 3 ronds en haut =  rouge ferme, jaune reduit, vert agrandit
+  - Le coin en bas a droite (le petit triangle) = redimensionner
+
+On ajoutera d'autres fonctions au fur et a mesure !

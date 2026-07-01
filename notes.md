@@ -1,0 +1,12 @@
+Liste des chses a ajouter :
+- Connection serv qui tourne en background
+- Page de paramétrage pour la config de claude des alias et des servs et le reste path mise a jour nom version crédits v d'affichage ...
+- (PLUS TARD) Plusieurs commandes en meme temps genre un commande par onglet
+- Queue de commande
+- (PLUS TARD) Genre tu fait claude marketing va t'installe le skill et te lance l'agent marketing de claude (Ca mais avec pleins d'autres agents/skills)
+- (PLUS TARD) Faire un .bat qui instlle le terminal claude code ... les dependance les skills (pour le moment juste superpowers)et tout le reste (verifie si c'est deja installer pour pas installer en double)
+- (QUAND CE SERA UN .exe) Qu'on puisse faire clic droit : Ouvrir dans Retminal
+- Avoir un gestinaire de conversation claude code via claude -r
+- Version affichée partout : V 6.4.1 (Ultra)
+- Rendre compatible a tout (Barre de chargement , truc d'éxratction d'archive ...)
+- 

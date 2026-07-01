@@ -1,0 +1,9 @@
+[
+    {
+        "name": "VPS",
+        "ip": "ENV§§.env:VPS_HOST",
+        "password": "ENV§§.env:VPS_PASSWORD",
+        "user": "ENV§§.env:VPS_USER",
+        "folder": "/var/www"
+    }
+]
