@@ -385,6 +385,7 @@ class Retminal:
         self._fs_old_geom = None
         self._copy_start = 0
         self._copy_last = (0, 0)
+        self._hl_lang = None
         self.pal = None
         self._pal_items = []
         self._pal_sel = 0
@@ -519,6 +520,9 @@ class Retminal:
             "plein": self.cmd_plein,
             "fullscreen": self.cmd_plein,
             "palette": self.cmd_palette,
+            "raccourci": self.cmd_raccourci,
+            "raccourcis": self.cmd_raccourci,
+            "keybind": self.cmd_raccourci,
             "copy": self.cmd_copy,
             "copier": self.cmd_copy,
             "clean": self.cmd_clean,
@@ -570,6 +574,7 @@ class Retminal:
         self._render_tabs()
         self._write_prompt()
         self._update_status()
+        self._apply_keybinds()
         self.input_entry.focus_set()
         self.root.after(80, self._init_win32)
         if IS_MAC:
@@ -991,6 +996,11 @@ class Retminal:
         self.text.tag_config("cfgbox", foreground=FG_DIM)
         for _c, _hx in MC_COLORS.items():
             self.text.tag_config("mc" + _c, foreground=_hx)
+        for _n, _hx in (("hlkw", "#c792ea"), ("hlstr", "#c3e88d"),
+                        ("hlcom", "#6b7a8c"), ("hlnum", "#f78c6c"),
+                        ("hldef", "#82aaff"), ("hltag", "#89ddff"),
+                        ("hlattr", "#ffcb6b")):
+            self.text.tag_config(_n, foreground=_hx)
         self.text.tag_config("emoji", font=("Segoe UI Emoji", 12))
 
         self.status_bar = tk.Frame(container, bg=BG)
@@ -2755,6 +2765,7 @@ class Retminal:
                 "convos", "conversations", "ask", "demande",
                 "explique", "resume", "plein", "fullscreen",
                 "copy", "copier", "clean", "nettoyer", "palette",
+                "raccourci", "raccourcis", "keybind",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -2788,7 +2799,58 @@ class Retminal:
             return
         if self._maybe_cd(cmd):
             return
+        corr = self._maybe_autocorrect(name)
+        if corr:
+            rest = cmd.split(maxsplit=1)
+            newcmd = corr + (" " + rest[1] if len(rest) > 1 else "")
+            self._insert(
+                "  🪄 Commande inconnue. Tu voulais dire  " + corr
+                + "  ?  (Entree pour lancer)\n", "dim",
+            )
+            self.input_entry.delete(0, "end")
+            self.input_entry.insert(0, newcmd)
+            self.input_entry.icursor("end")
+            self._write_prompt()
+            return
         self._run_shell(cmd)
+
+    def _edit_dist(self, a, b, maxd=2):
+        la, lb = len(a), len(b)
+        if abs(la - lb) > maxd:
+            return None
+        prev = list(range(lb + 1))
+        for i in range(1, la + 1):
+            cur = [i] + [0] * lb
+            mn = cur[0]
+            for j in range(1, lb + 1):
+                cost = 0 if a[i - 1] == b[j - 1] else 1
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+                if cur[j] < mn:
+                    mn = cur[j]
+            if mn > maxd:
+                return None
+            prev = cur
+        return prev[lb] if prev[lb] <= maxd else None
+
+    def _maybe_autocorrect(self, first):
+        if len(first) < 3 or any(c in first for c in "/\\.:$*?"):
+            return None
+        prognames = {n.lower() for n, _ in (self._local_cmds or [])}
+        if first in self.custom or first in prognames or first in self.user_commands:
+            return None
+        cands = []
+        for name in self.custom:
+            if abs(len(name) - len(first)) > 2:
+                continue
+            d = self._edit_dist(first, name, 2)
+            if d is not None and d <= 2:
+                cands.append((d, name))
+        if not cands:
+            return None
+        cands.sort()
+        if len(cands) > 1 and cands[0][0] == cands[1][0]:
+            return None
+        return cands[0][1]
 
     def _maybe_cd_unix(self, cmd):
         s = cmd.strip()
@@ -3131,6 +3193,7 @@ class Retminal:
             self._insert("[!] " + str(e) + "\n", "err")
             self._write_prompt()
             return
+        self._hl_lang = self._detect_hl_lang(cmd)
         sh = shell or self._cur_shell()
         kind = sh["kind"]
         if kind == "unix":
@@ -3313,7 +3376,14 @@ class Retminal:
         return runs
 
     def _output_runs(self, line):
-        if not getattr(self, "md_output", True) or self.stream_mode or not line:
+        if self.stream_mode or not line:
+            return [(line, "out")]
+        lang = getattr(self, "_hl_lang", None)
+        if lang:
+            runs = self._highlight_code(line, lang)
+            if runs:
+                return runs
+        if not getattr(self, "md_output", True):
             return [(line, "out")]
         if not any(tok in line for tok in ("**", "`", "*", "§")):
             return [(line, "out")]
@@ -3321,6 +3391,148 @@ class Retminal:
         if any(tag != "out" for _, tag in runs):
             return runs
         return [(line, "out")]
+
+    # ---- Coloration du code (cat d'un .py/.json/.html/... en couleurs) ----
+    _HL_VIEW = {"cat", "tac", "bat", "batcat", "type", "head", "tail",
+                "less", "more", "view", "nl"}
+    _HL_EXT = {
+        "py": "py", "pyw": "py",
+        "json": "json",
+        "html": "html", "htm": "html", "xml": "html", "svg": "html",
+        "js": "js", "mjs": "js", "ts": "js", "jsx": "js",
+        "css": "css",
+        "sh": "sh", "bash": "sh", "zsh": "sh",
+        "c": "c", "h": "c", "cpp": "c", "hpp": "c", "cc": "c",
+        "java": "c", "cs": "c", "go": "c", "rs": "c", "php": "c",
+    }
+    _HL_KW = {
+        "py": {"def", "class", "if", "elif", "else", "for", "while", "return",
+               "import", "from", "as", "in", "not", "and", "or", "is", "None",
+               "True", "False", "try", "except", "finally", "with", "lambda",
+               "yield", "pass", "break", "continue", "global", "nonlocal", "del",
+               "raise", "assert", "async", "await", "print", "self"},
+        "js": {"var", "let", "const", "function", "return", "if", "else", "for",
+               "while", "do", "switch", "case", "break", "continue", "new", "this",
+               "class", "extends", "import", "export", "from", "default", "try",
+               "catch", "finally", "throw", "typeof", "null", "undefined", "true",
+               "false", "async", "await", "of", "in", "console"},
+        "sh": {"if", "then", "else", "elif", "fi", "for", "while", "do", "done",
+               "case", "esac", "function", "return", "in", "echo", "export",
+               "local", "read", "cd", "source", "sudo", "apt", "git"},
+        "c": {"int", "char", "float", "double", "long", "short", "unsigned", "void",
+              "bool", "if", "else", "for", "while", "do", "return", "struct",
+              "class", "public", "private", "protected", "static", "const", "new",
+              "delete", "include", "define", "import", "package", "true", "false",
+              "null", "nullptr", "func", "let", "var", "fn"},
+        "css": set(),
+    }
+
+    def _detect_hl_lang(self, cmd):
+        try:
+            parts = cmd.strip().split()
+            if not parts or parts[0].lower() not in self._HL_VIEW:
+                return None
+            for tok in parts[1:]:
+                if tok.startswith("-"):
+                    continue
+                name = tok.strip('"\'')
+                if "." in name:
+                    ext = name.rsplit(".", 1)[-1].lower()
+                    if ext in self._HL_EXT:
+                        return self._HL_EXT[ext]
+            return None
+        except Exception:
+            return None
+
+    def _highlight_code(self, line, lang):
+        try:
+            if lang == "json":
+                return self._hl_json(line)
+            if lang == "html":
+                return self._hl_html(line)
+            com = {"py": "#", "sh": "#", "js": "//", "c": "//", "css": r"/\*"}.get(lang, "#")
+            return self._hl_generic(line, self._HL_KW.get(lang, set()), com)
+        except Exception:
+            return None
+
+    def _hl_generic(self, line, kw, com):
+        pat = re.compile(
+            r'(?P<str>"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`)'
+            r'|(?P<com>' + com + r'.*$)'
+            r'|(?P<num>\b\d+\.?\d*\b)'
+            r'|(?P<id>[A-Za-z_]\w*)'
+        )
+        runs = []
+        pos = 0
+        expect_name = False
+        for m in pat.finditer(line):
+            if m.start() > pos:
+                runs.append((line[pos:m.start()], "out"))
+            g = m.lastgroup
+            tok = m.group()
+            if g == "id":
+                if tok in kw:
+                    runs.append((tok, "hlkw"))
+                    expect_name = tok in ("def", "class", "function", "func", "fn")
+                elif expect_name:
+                    runs.append((tok, "hldef"))
+                    expect_name = False
+                else:
+                    runs.append((tok, "out"))
+                    expect_name = False
+            else:
+                expect_name = False
+                runs.append((tok, {"str": "hlstr", "com": "hlcom", "num": "hlnum"}[g]))
+            pos = m.end()
+        if pos < len(line):
+            runs.append((line[pos:], "out"))
+        return runs if any(t != "out" for _, t in runs) else None
+
+    def _hl_json(self, line):
+        pat = re.compile(
+            r'(?P<str>"(?:\\.|[^"\\])*")'
+            r'|(?P<num>-?\b\d+\.?\d*(?:[eE][+-]?\d+)?\b)'
+            r'|(?P<kw>\btrue\b|\bfalse\b|\bnull\b)'
+        )
+        runs = []
+        pos = 0
+        for m in pat.finditer(line):
+            if m.start() > pos:
+                runs.append((line[pos:m.start()], "out"))
+            g = m.lastgroup
+            tok = m.group()
+            if g == "str":
+                rest = line[m.end():].lstrip()
+                runs.append((tok, "hlattr" if rest.startswith(":") else "hlstr"))
+            elif g == "num":
+                runs.append((tok, "hlnum"))
+            else:
+                runs.append((tok, "hlkw"))
+            pos = m.end()
+        if pos < len(line):
+            runs.append((line[pos:], "out"))
+        return runs if any(t != "out" for _, t in runs) else None
+
+    def _hl_html(self, line):
+        pat = re.compile(
+            r'(?P<com><!--.*?-->)'
+            r'|(?P<tag></?[A-Za-z][\w:-]*)'
+            r'|(?P<str>"[^"]*"|\'[^\']*\')'
+            r'|(?P<close>/?>)'
+            r'|(?P<attr>[A-Za-z_:][\w:.-]*)(?=\s*=)'
+        )
+        runs = []
+        pos = 0
+        tagmap = {"com": "hlcom", "tag": "hltag", "str": "hlstr",
+                  "close": "hltag", "attr": "hlattr"}
+        for m in pat.finditer(line):
+            if m.start() > pos:
+                runs.append((line[pos:m.start()], "out"))
+            runs.append((m.group(), tagmap[m.lastgroup]))
+            pos = m.end()
+        if pos < len(line):
+            runs.append((line[pos:], "out"))
+        return runs if any(t != "out" for _, t in runs) else None
 
     def _print_rich(self, text):
         for s, tag in self._rich_runs(text):
@@ -3557,6 +3769,7 @@ class Retminal:
             ("rename <nom>", "renomme l'onglet (ou double-clic sur l'onglet)"),
             ("plein", "plein ecran (aussi la touche F11) — F11/Echap pour sortir"),
             ("palette", "PALETTE de commandes (aussi Ctrl+R) : historique + toutes les commandes"),
+            ("raccourci", "cree un raccourci clavier perso (ex: raccourci ctrl+g config)"),
             ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
             ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
@@ -4824,6 +5037,8 @@ class Retminal:
         self.md_output = bool(data.get("md_output", True))
         self.config_theme = data.get("theme", "vert")
         self.default_shell = data.get("default_shell", "")
+        kb = data.get("keybinds", {})
+        self.keybinds = kb if isinstance(kb, dict) else {}
 
     def _save_settings(self):
         try:
@@ -4833,9 +5048,130 @@ class Retminal:
                     "md_output": self.md_output,
                     "theme": getattr(self, "config_theme", "vert"),
                     "default_shell": getattr(self, "default_shell", ""),
+                    "keybinds": getattr(self, "keybinds", {}),
                 }, f)
         except Exception:
             pass
+
+    # ---- Raccourcis clavier perso ----
+    _RESERVED = {
+        "<Control-t>", "<Control-w>", "<Control-r>", "<Control-c>", "<Control-d>",
+        "<Control-s>", "<Control-k>", "<Control-v>", "<Control-ugrave>",
+        "<F11>", "<Escape>", "<Return>", "<Up>", "<Down>", "<Tab>",
+        "<Control-Tab>", "<Control-Prior>", "<Control-Next>", "<Control-Shift-Tab>",
+    }
+    _HOTKEY_MODS = {"ctrl": "Control", "control": "Control", "alt": "Alt",
+                    "shift": "Shift", "cmd": "Command", "super": "Super", "win": "Super"}
+    _HOTKEY_NAMED = {
+        "space": "space", "enter": "Return", "return": "Return", "tab": "Tab",
+        "esc": "Escape", "escape": "Escape", "up": "Up", "down": "Down",
+        "left": "Left", "right": "Right", "del": "Delete", "delete": "Delete",
+        "home": "Home", "end": "End", "pageup": "Prior", "pagedown": "Next",
+        "backspace": "BackSpace", "ins": "Insert", "insert": "Insert",
+    }
+
+    def _parse_hotkey(self, s):
+        s = (s or "").strip().lower().replace(" ", "")
+        if not s:
+            return None
+        parts = s.split("+")
+        key = parts[-1]
+        mods = []
+        for p in parts[:-1]:
+            if p not in self._HOTKEY_MODS:
+                return None
+            mods.append(self._HOTKEY_MODS[p])
+        if re.fullmatch(r"f([1-9]|1[0-2])", key):
+            keyname = key.upper()
+        elif len(key) == 1 and (key.isalnum() or key in "&é\"'(-_ç"):
+            keyname = key
+        elif key in self._HOTKEY_NAMED:
+            keyname = self._HOTKEY_NAMED[key]
+        else:
+            return None
+        return "<" + "-".join(mods + [keyname]) + ">"
+
+    def _pretty_hotkey(self, seq):
+        inner = seq.strip("<>").split("-")
+        disp = {"Control": "Ctrl", "Command": "Cmd"}
+        out = [disp.get(p, p) for p in inner[:-1]]
+        k = inner[-1]
+        out.append(k.upper() if len(k) == 1 else k)
+        return "+".join(out)
+
+    def _apply_keybinds(self):
+        for seq, command in list(getattr(self, "keybinds", {}).items()):
+            try:
+                self.root.bind(seq, lambda e, c=command: self._run_keybind(c))
+            except Exception:
+                pass
+
+    def _run_keybind(self, command):
+        if self._sysmon_on or self.claude_mode or self.running:
+            return "break"
+        try:
+            self.input_entry.delete(0, "end")
+        except Exception:
+            pass
+        self._hide_suggestions()
+        self._echo_prompt_command(command)
+        self._dispatch(command)
+        return "break"
+
+    def cmd_raccourci(self, cmd):
+        parts = cmd.split()
+        self.keybinds = getattr(self, "keybinds", {})
+        if len(parts) == 1:
+            if not self.keybinds:
+                self._insert("  Aucun raccourci perso.  Ex:  raccourci ctrl+g config\n", "dim")
+            else:
+                self._insert("  ⌨  Tes raccourcis perso :\n", "cyan")
+                for seq, command in self.keybinds.items():
+                    self._insert("   " + self._pretty_hotkey(seq).ljust(16) + " ->  " + command + "\n", "out")
+                self._insert("  (raccourci del <touche> pour en enlever un)\n", "dim")
+            self._write_prompt()
+            return
+        if parts[1].lower() in ("del", "delete", "supprime", "enleve"):
+            if len(parts) < 3:
+                self._insert("  Usage :  raccourci del ctrl+g\n", "dim")
+                self._write_prompt()
+                return
+            seq = self._parse_hotkey(parts[2])
+            if seq and seq in self.keybinds:
+                del self.keybinds[seq]
+                try:
+                    self.root.unbind(seq)
+                except Exception:
+                    pass
+                self._save_settings()
+                self._insert("  🗑 Raccourci enleve : " + parts[2] + "\n", "dim")
+            else:
+                self._insert("  Ce raccourci n'existe pas.\n", "err")
+            self._write_prompt()
+            return
+        seq = self._parse_hotkey(parts[1])
+        if not seq:
+            self._insert("  Touche pas comprise.  Ex:  ctrl+g , f5 , alt+shift+p\n", "err")
+            self._write_prompt()
+            return
+        if seq in self._RESERVED:
+            self._insert("  Ce raccourci est deja pris par Retminal, choisis-en un autre.\n", "err")
+            self._write_prompt()
+            return
+        chunks = cmd.split(maxsplit=2)
+        command = chunks[2].strip() if len(chunks) > 2 else ""
+        if not command:
+            self._insert("  Usage :  raccourci ctrl+g config   (la touche, puis la commande)\n", "dim")
+            self._write_prompt()
+            return
+        self.keybinds[seq] = command
+        try:
+            self.root.bind(seq, lambda e, c=command: self._run_keybind(c))
+        except Exception:
+            pass
+        self._save_settings()
+        self._insert("  ✅ Raccourci cree :  " + self._pretty_hotkey(seq) + "  ->  " + command + "\n", "bright")
+        self._write_prompt()
 
     def _redact(self, s):
         s = re.sub(r"sk-ant-[A-Za-z0-9_\-]+", "sk-•••••", s)
