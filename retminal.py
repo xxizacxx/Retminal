@@ -726,9 +726,36 @@ class Retminal:
         except Exception:
             return self.root.winfo_screenwidth(), self.root.winfo_screenheight() - 48, 0, 0
 
+    def _resource(self, name):
+        cand = []
+        if getattr(sys, "frozen", False):
+            cand.append(os.path.join(getattr(sys, "_MEIPASS", ""), name))
+            cand.append(os.path.join(os.path.dirname(sys.executable), name))
+        cand.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), name))
+        for p in cand:
+            if p and os.path.isfile(p):
+                return p
+        return None
+
+    def _set_window_icon(self):
+        try:
+            png = self._resource("Retminal_icone.png")
+            if png:
+                self._winicon = tk.PhotoImage(file=png)
+                self.root.iconphoto(True, self._winicon)
+        except Exception:
+            pass
+        try:
+            ico = self._resource("Retminal.ico")
+            if ico:
+                self.root.iconbitmap(ico)
+        except Exception:
+            pass
+
     def _build_ui(self):
         self.root.configure(bg=BG)
         self.root.overrideredirect(True)
+        self._set_window_icon()
         self.root.minsize(460, 280)
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
