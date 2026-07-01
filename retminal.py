@@ -304,6 +304,12 @@ class Retminal:
         self._fs_old_geom = None
         self._copy_start = 0
         self._copy_last = (0, 0)
+        self.pal = None
+        self._pal_items = []
+        self._pal_sel = 0
+        self._pal_filter = "tout"
+        self._pal_query = ""
+        self._pal_linemap = {}
         self._restoring = False
         self.connected = False
         self.ssh = None
@@ -435,6 +441,7 @@ class Retminal:
             "conversations": self.cmd_convos,
             "plein": self.cmd_plein,
             "fullscreen": self.cmd_plein,
+            "palette": self.cmd_palette,
             "copy": self.cmd_copy,
             "copier": self.cmd_copy,
             "clean": self.cmd_clean,
@@ -611,6 +618,9 @@ class Retminal:
             "  Plein ecran " + etat + "   (F11 ou Echap pour basculer)\n", "cyan"
         )
         self._write_prompt()
+
+    def cmd_palette(self, cmd):
+        self._open_palette()
 
     def cmd_copy(self, cmd):
         start, end = getattr(self, "_copy_last", (0, 0))
@@ -995,6 +1005,10 @@ class Retminal:
         self.input_entry.bind("<Button-3>", lambda e: self._edit_menu(e, self.input_entry))
         self.root.bind("<F11>", self._toggle_fullscreen)
         self.input_entry.bind("<F11>", self._toggle_fullscreen)
+        self.root.bind("<Control-r>", self._open_palette)
+        self.root.bind("<Control-R>", self._open_palette)
+        self.input_entry.bind("<Control-r>", self._open_palette)
+        self.input_entry.bind("<Control-R>", self._open_palette)
         self.root.bind("<Control-t>", lambda e: self._new_tab())
         self.root.bind("<Control-w>", lambda e: self._close_tab(self._active))
         self.root.bind("<Control-Tab>", lambda e: self._cycle_tab(1))
@@ -1976,6 +1990,235 @@ class Retminal:
         self._sg_shown = False
         self._sg_navigated = False
 
+    # ---- Palette de commandes (Ctrl+R) ----
+    _PAL_FILTERS = [("tout", "Tout"), ("hist", "Historique"),
+                    ("cmd", "Commandes"), ("prog", "Programmes")]
+
+    def _open_palette(self, event=None):
+        if self._sysmon_on or self.claude_mode:
+            return "break"
+        self._hide_suggestions()
+        self._hide_md_preview()
+        self._pal_build()
+        self._pal_query = ""
+        self._pal_filter = "tout"
+        self._pal_sel = 0
+        self._pal_refresh()
+        self.pal.place(relx=0.5, y=64, anchor="n")
+        self.pal.lift()
+        self.pal_search.focus_set()
+        return "break"
+
+    def _pal_close(self):
+        try:
+            if self.pal is not None:
+                self.pal.place_forget()
+        except Exception:
+            pass
+        try:
+            self.input_entry.focus_set()
+        except Exception:
+            pass
+
+    def _pal_build(self):
+        if self.pal is not None:
+            try:
+                self.pal.destroy()
+            except Exception:
+                pass
+        t = self.theme
+        self.pal = tk.Frame(
+            self.container, bg=t["bg_bar"],
+            highlightbackground=t["accent"], highlightthickness=2,
+        )
+        top = tk.Frame(self.pal, bg=t["bg_bar"])
+        top.pack(fill="x", padx=10, pady=(9, 5))
+        tk.Label(top, text="\U0001f50d", bg=t["bg_bar"], fg=t["bright"],
+                 font=(MONO, 13)).pack(side="left", padx=(2, 8))
+        self.pal_search = tk.Entry(
+            top, bg=t["bg"], fg=t["bright"], insertbackground=t["fg"],
+            font=(MONO, 13), bd=0, relief="flat",
+            highlightthickness=1, highlightbackground=t["border"],
+            highlightcolor=t["accent"],
+        )
+        self.pal_search.pack(side="left", fill="x", expand=True, ipady=5, ipadx=6)
+        self.pal_search.bind("<KeyRelease>", self._pal_on_key)
+        self.pal_search.bind("<Up>", lambda e: self._pal_move(-1))
+        self.pal_search.bind("<Down>", lambda e: self._pal_move(1))
+        self.pal_search.bind("<Return>", lambda e: self._pal_accept())
+        self.pal_search.bind("<KP_Enter>", lambda e: self._pal_accept())
+        self.pal_search.bind("<Escape>", lambda e: (self._pal_close(), "break")[1])
+        self.pal_search.bind("<Tab>", lambda e: self._pal_cycle_filter())
+        self.pal_chipbar = tk.Frame(self.pal, bg=t["bg_bar"])
+        self.pal_chipbar.pack(fill="x", padx=10, pady=(0, 6))
+        self.pal_chips = {}
+        for key, lab in self._PAL_FILTERS:
+            c = tk.Label(self.pal_chipbar, text=lab, bg=t["bg"], fg=t["dim"],
+                         font=(MONO, 10), padx=11, pady=3, cursor="hand2")
+            c.pack(side="left", padx=(0, 6))
+            c.bind("<Button-1>", lambda e, k=key: self._pal_set_filter(k))
+            self.pal_chips[key] = c
+        self.pal_list = tk.Text(
+            self.pal, height=14, width=74, bg=t["bg"], fg=t["fg"],
+            font=(MONO, 12), bd=0, highlightthickness=0, wrap="none",
+            padx=6, pady=4, cursor="arrow", takefocus=0, state="disabled",
+        )
+        self.pal_list.pack(fill="both", expand=True, padx=10, pady=(0, 4))
+        self.pal_list.bind("<Button-1>", self._pal_click)
+        self.pal_list.bind("<MouseWheel>", self._pal_wheel)
+        self.pal_list.tag_config("palsec", foreground=t["cyan"], font=(MONO, 10, "bold"))
+        self.pal_list.tag_config("palcmd", foreground=t["bright"])
+        self.pal_list.tag_config("paldesc", foreground=t["dim"])
+        self.pal_list.tag_config("palsel", background=t["accent"], foreground=t["bg"])
+        self.pal_foot = tk.Label(
+            self.pal,
+            text="  ↑↓ bouger   ·   Entree = mettre dans la barre   ·   Tab = filtre   ·   Echap = fermer",
+            bg=t["bg_bar"], fg=t["dim"], font=(MONO, 9), anchor="w", pady=4,
+        )
+        self.pal_foot.pack(fill="x", padx=10, pady=(0, 8))
+
+    def _pal_all(self):
+        items = []
+        seen = set()
+        for h in reversed(self.history):
+            h = h.strip()
+            if h and h.lower() not in seen:
+                seen.add(h.lower())
+                items.append(("hist", h, ""))
+        prog = self._server_cmds if self.connected else self._local_cmds
+        prognames = {n.lower() for n, _ in prog}
+        for name, desc in self._command_suggestions():
+            kind = "prog" if name.lower() in prognames else "cmd"
+            items.append((kind, name, desc))
+        return items
+
+    def _pal_refresh(self):
+        q = self._pal_query.lower().strip()
+        f = self._pal_filter
+        matched = []
+        for kind, cmd, desc in self._pal_all():
+            if f != "tout" and f != kind:
+                continue
+            if q and q not in cmd.lower() and q not in desc.lower():
+                continue
+            matched.append((kind, cmd, desc))
+        order = {"hist": 0, "cmd": 1, "prog": 2}
+        matched.sort(key=lambda it: order.get(it[0], 3))
+        self._pal_items = matched[:250]
+        if self._pal_sel >= len(self._pal_items):
+            self._pal_sel = max(0, len(self._pal_items) - 1)
+        self._pal_update_chips()
+        self._pal_render()
+
+    def _pal_render(self):
+        lst = self.pal_list
+        lst.config(state="normal")
+        lst.delete("1.0", "end")
+        self._pal_linemap = {}
+        if not self._pal_items:
+            lst.insert("end", "\n   (rien trouve — change le texte ou le filtre)\n", "paldesc")
+            lst.config(state="disabled")
+            return
+        labels = {"hist": "HISTORIQUE", "cmd": "COMMANDES RETMINAL", "prog": "PROGRAMMES DU PC"}
+        W = 70
+        cur = None
+        for i, (kind, cmd, desc) in enumerate(self._pal_items):
+            if kind != cur:
+                cur = kind
+                lst.insert("end", ("\n" if i else "") + "  " + labels.get(kind, kind) + "\n", "palsec")
+            ln = int(lst.index("end-1c").split(".")[0])
+            self._pal_linemap[ln] = i
+            if i == self._pal_sel:
+                body = cmd + ("   " + desc if desc else "")
+                body = body[:W]
+                lst.insert("end", " " + body + " " * max(1, W - len(body)) + "\n", "palsel")
+            else:
+                lst.insert("end", " ", "palcmd")
+                lst.insert("end", cmd[:W], "palcmd")
+                if desc:
+                    d = desc[:max(0, W - len(cmd) - 3)]
+                    if d:
+                        lst.insert("end", "   " + d, "paldesc")
+                lst.insert("end", "\n", "paldesc")
+        lst.config(state="disabled")
+        sel_line = None
+        for ln, idx in self._pal_linemap.items():
+            if idx == self._pal_sel:
+                sel_line = ln
+                break
+        if sel_line is None or sel_line <= 13:
+            lst.yview_moveto(0.0)
+        else:
+            lst.see(f"{sel_line}.0")
+
+    def _pal_move(self, d):
+        if self._pal_items:
+            self._pal_sel = max(0, min(len(self._pal_items) - 1, self._pal_sel + d))
+            self._pal_render()
+        return "break"
+
+    def _pal_accept(self):
+        if self._pal_items:
+            i = max(0, min(self._pal_sel, len(self._pal_items) - 1))
+            cmd = self._pal_items[i][1]
+            self._pal_close()
+            self.input_entry.delete(0, "end")
+            self.input_entry.insert(0, cmd)
+            self.input_entry.icursor("end")
+            self.input_entry.focus_set()
+        else:
+            self._pal_close()
+        return "break"
+
+    def _pal_click(self, event):
+        try:
+            ln = int(self.pal_list.index(f"@{event.x},{event.y}").split(".")[0])
+        except Exception:
+            return "break"
+        if ln in self._pal_linemap:
+            self._pal_sel = self._pal_linemap[ln]
+            self._pal_accept()
+        return "break"
+
+    def _pal_wheel(self, event):
+        try:
+            self.pal_list.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        except Exception:
+            pass
+        return "break"
+
+    def _pal_on_key(self, event):
+        if event.keysym in ("Up", "Down", "Return", "KP_Enter", "Escape", "Tab",
+                            "Control_L", "Control_R", "Shift_L", "Shift_R"):
+            return
+        self._pal_query = self.pal_search.get()
+        self._pal_sel = 0
+        self._pal_refresh()
+
+    def _pal_set_filter(self, key):
+        self._pal_filter = key
+        self._pal_sel = 0
+        self._pal_refresh()
+        try:
+            self.pal_search.focus_set()
+        except Exception:
+            pass
+        return "break"
+
+    def _pal_cycle_filter(self):
+        keys = [k for k, _ in self._PAL_FILTERS]
+        i = (keys.index(self._pal_filter) + 1) % len(keys) if self._pal_filter in keys else 0
+        self._pal_set_filter(keys[i])
+        return "break"
+
+    def _pal_update_chips(self):
+        t = self.theme
+        for key, chip in getattr(self, "pal_chips", {}).items():
+            if key == self._pal_filter:
+                chip.config(bg=t["accent"], fg=t["bg"])
+            else:
+                chip.config(bg=t["bg"], fg=t["dim"])
+
     def _suggest_move(self, delta):
         if not self._sg_shown or not self._sg_matches:
             return False
@@ -2229,7 +2472,7 @@ class Retminal:
                 "explore", "fichiers", "backup", "services",
                 "convos", "conversations", "ask", "demande",
                 "explique", "resume", "plein", "fullscreen",
-                "copy", "copier", "clean", "nettoyer",
+                "copy", "copier", "clean", "nettoyer", "palette",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -2959,6 +3202,7 @@ class Retminal:
             ("qui", "qui est connecte sur ton serveur (une fois connecte)"),
             ("rename <nom>", "renomme l'onglet (ou double-clic sur l'onglet)"),
             ("plein", "plein ecran (aussi la touche F11) — F11/Echap pour sortir"),
+            ("palette", "PALETTE de commandes (aussi Ctrl+R) : cherche dans l'historique + toutes les commandes"),
             ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
             ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
@@ -6939,6 +7183,9 @@ class Retminal:
         self._write_prompt()
 
     def _on_escape(self, event):
+        if getattr(self, "pal", None) is not None and self.pal.winfo_ismapped():
+            self._pal_close()
+            return "break"
         if self._sysmon_on:
             if self._sysmon_source == "explore":
                 if self._fx_confirm:
