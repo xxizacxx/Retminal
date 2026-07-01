@@ -74,7 +74,7 @@ MONO = (_MAC_FONT or "Menlo") if IS_MAC else "Consolas"
 STRIP_H = 19
 
 CLAWD_HEX = "#d8825f"
-VERSION = "V 6.7 (Ultra)"
+VERSION = "V 6.8 (Ultra)"
 RETY_GREEN = (174, 255, 201, 255)
 RETY_TURQ = (94, 230, 210, 255)
 CLAWD_ORANGE = (216, 130, 95, 255)
@@ -386,6 +386,13 @@ class Retminal:
         self._copy_start = 0
         self._copy_last = (0, 0)
         self._hl_lang = None
+        self.split_on = False
+        self.split_frame = None
+        self.text_peek = None
+        self._split_peer_snap = None
+        self._split_after = None
+        self._peek_len = -1
+        self._peek_idx = None
         self.pal = None
         self._pal_items = []
         self._pal_sel = 0
@@ -523,6 +530,12 @@ class Retminal:
             "raccourci": self.cmd_raccourci,
             "raccourcis": self.cmd_raccourci,
             "keybind": self.cmd_raccourci,
+            "split": self.cmd_split,
+            "splitscreen": self.cmd_split,
+            "fenetre": self.cmd_fenetre,
+            "fenêtre": self.cmd_fenetre,
+            "window": self.cmd_fenetre,
+            "newwindow": self.cmd_fenetre,
             "copy": self.cmd_copy,
             "copier": self.cmd_copy,
             "clean": self.cmd_clean,
@@ -1173,6 +1186,14 @@ class Retminal:
         self.root.bind("<Control-Shift-Tab>", lambda e: self._cycle_tab(-1))
         self.root.bind("<Control-Prior>", lambda e: self._cycle_tab(-1))
         self.root.bind("<Control-Next>", lambda e: self._cycle_tab(1))
+        self.root.bind("<Control-n>", self._new_window_key)
+        self.root.bind("<Control-N>", self._new_window_key)
+        self.input_entry.bind("<Control-n>", self._new_window_key)
+        self.input_entry.bind("<Control-N>", self._new_window_key)
+        self.input_entry.bind("<Control-Right>", self._split_key)
+        self.input_entry.bind("<Control-Left>", self._split_key)
+        self.root.bind("<Control-Right>", self._split_key)
+        self.root.bind("<Control-Left>", self._split_key)
         if IS_MAC:
             # Sur Mac on utilise Cmd (⌘) en plus de Ctrl
             for _seq, _fn in (
@@ -1192,6 +1213,10 @@ class Retminal:
             self.root.bind("<Command-w>", lambda e: self._close_tab(self._active))
             self.root.bind("<Command-Shift-bracketright>", lambda e: self._cycle_tab(1))
             self.root.bind("<Command-Shift-bracketleft>", lambda e: self._cycle_tab(-1))
+            self.root.bind("<Command-n>", self._new_window_key)
+            self.input_entry.bind("<Command-n>", self._new_window_key)
+            self.input_entry.bind("<Command-Right>", self._split_key)
+            self.input_entry.bind("<Command-Left>", self._split_key)
 
     _ANIM_MS = 14
 
@@ -2766,6 +2791,7 @@ class Retminal:
                 "explique", "resume", "plein", "fullscreen",
                 "copy", "copier", "clean", "nettoyer", "palette",
                 "raccourci", "raccourcis", "keybind",
+                "split", "splitscreen", "fenetre", "fenêtre", "window", "newwindow",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -3770,6 +3796,8 @@ class Retminal:
             ("plein", "plein ecran (aussi la touche F11) — F11/Echap pour sortir"),
             ("palette", "PALETTE de commandes (aussi Ctrl+R) : historique + toutes les commandes"),
             ("raccourci", "cree un raccourci clavier perso (ex: raccourci ctrl+g config)"),
+            ("split", "divise l'ecran en 2 : ton terminal + un onglet surveille (Ctrl+Fleche echange)"),
+            ("fenetre", "ouvre une NOUVELLE fenetre Retminal (aussi Ctrl+N)"),
             ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
             ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
@@ -5056,9 +5084,10 @@ class Retminal:
     # ---- Raccourcis clavier perso ----
     _RESERVED = {
         "<Control-t>", "<Control-w>", "<Control-r>", "<Control-c>", "<Control-d>",
-        "<Control-s>", "<Control-k>", "<Control-v>", "<Control-ugrave>",
+        "<Control-s>", "<Control-k>", "<Control-v>", "<Control-ugrave>", "<Control-n>",
         "<F11>", "<Escape>", "<Return>", "<Up>", "<Down>", "<Tab>",
         "<Control-Tab>", "<Control-Prior>", "<Control-Next>", "<Control-Shift-Tab>",
+        "<Control-Left>", "<Control-Right>",
     }
     _HOTKEY_MODS = {"ctrl": "Control", "control": "Control", "alt": "Alt",
                     "shift": "Shift", "cmd": "Command", "super": "Super", "win": "Super"}
@@ -8017,6 +8046,277 @@ class Retminal:
                 self._active -= 1
             self._render_tabs()
         return "break"
+
+    # ---- Multi-fenetres (ouvrir une autre fenetre Retminal) ----
+
+    def _open_new_window(self):
+        try:
+            if getattr(sys, "frozen", False):
+                if sys.platform == "darwin":
+                    app = sys.executable
+                    while app and not app.endswith(".app"):
+                        parent = os.path.dirname(app)
+                        if parent == app:
+                            break
+                        app = parent
+                    if app.endswith(".app"):
+                        subprocess.Popen(["open", "-n", app])
+                        return True
+                args = [sys.executable]
+                cwd = os.path.dirname(sys.executable) or None
+            else:
+                py = sys.executable
+                if os.name == "nt" and os.path.basename(py).lower() == "python.exe":
+                    cand = os.path.join(os.path.dirname(py), "pythonw.exe")
+                    if os.path.exists(cand):
+                        py = cand
+                script = os.path.abspath(sys.argv[0])
+                args = [py, script]
+                cwd = os.path.dirname(script) or None
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            subprocess.Popen(args, cwd=cwd, creationflags=flags)
+            return True
+        except Exception as e:
+            self._insert("[!] Impossible d'ouvrir une nouvelle fenetre : " + str(e) + "\n", "err")
+            return False
+
+    def _new_window_key(self, event=None):
+        self._open_new_window()
+        return "break"
+
+    def cmd_fenetre(self, cmd):
+        if self._open_new_window():
+            self._insert("  🪟 Nouvelle fenetre Retminal ouverte !\n", "bright")
+        self._write_prompt()
+
+    # ---- Split-screen (2 terminaux cote a cote) ----
+
+    def cmd_split(self, cmd):
+        arg = cmd.split(maxsplit=1)
+        arg = arg[1].strip().lower() if len(arg) > 1 else ""
+        if arg in ("off", "fermer", "stop", "non", "close"):
+            if self.split_on:
+                self._split_off()
+                self._insert("  Split-screen ferme.\n", "dim")
+            else:
+                self._insert("  Le split n'est pas ouvert.\n", "dim")
+            self._write_prompt()
+            return
+        if self.split_on:
+            self._split_off()
+            self._insert("  Split-screen ferme.\n", "dim")
+            self._write_prompt()
+            return
+        self._split_on()
+
+    def _split_key(self, event=None):
+        if not self.split_on:
+            return None
+        self._split_swap()
+        return "break"
+
+    def _split_on(self):
+        if self.split_on:
+            return
+        if self._sysmon_on:
+            self._insert("  Ferme d'abord l'ecran en cours (config/carnet...) pour le split.\n", "err")
+            self._write_prompt()
+            return
+        if self._tab_busy():
+            self._insert("  Attends la fin de la commande avant de diviser l'ecran.\n", "dim")
+            self._write_prompt()
+            return
+        if len(self._tabs) < 2:
+            self._tabs.append(self._fresh_snapshot())
+        peer = None
+        idx = (self._active + 1) % len(self._tabs)
+        if self._tabs[idx] is None:
+            idx = (self._active - 1) % len(self._tabs)
+        peer = self._tabs[idx]
+        if peer is None:
+            self._insert("  Impossible d'ouvrir le split.\n", "err")
+            self._write_prompt()
+            return
+        self._split_peer_snap = peer
+        self.split_on = True
+        self._peek_len = -1
+        self._build_split()
+        self._render_tabs()
+        self._split_render_peek()
+        self._split_after = self.root.after(600, self._split_tick)
+        self._insert("  ⬛ Split-screen !  Gauche = ton terminal, droite = un onglet surveille en direct.\n", "bright")
+        self._insert("     Ctrl+Fleche (ou clic a droite) pour echanger.  Tape 'split' pour fermer.\n", "dim")
+        self._write_prompt()
+        self.input_entry.focus_set()
+
+    def _build_split(self):
+        t = self.theme
+        self.text.pack_forget()
+        self.split_frame = tk.Frame(self.container, bg=t["bg"])
+        self.split_frame.pack(side="top", fill="both", expand=True)
+        div = tk.Frame(self.split_frame, bg=t["accent"])
+        right = tk.Frame(self.split_frame, bg=t["bg"])
+        self.text.place(in_=self.split_frame, relx=0.0, rely=0.0,
+                        relwidth=0.5, relheight=1.0)
+        self.text.lift()
+        div.place(in_=self.split_frame, relx=0.5, rely=0.0,
+                  width=2, relheight=1.0)
+        right.place(in_=self.split_frame, relx=0.5, rely=0.0,
+                    relwidth=0.5, relheight=1.0, x=2)
+        self.split_right = right
+        self.split_div = div
+        self.peek_head = tk.Label(
+            right, text="", bg=t["bg_bar"], fg=t["dim"],
+            font=(MONO, 9, "bold"), anchor="w", padx=8,
+        )
+        self.peek_head.pack(side="top", fill="x")
+        self.peek_head.bind("<Button-1>", lambda e: self._split_swap())
+        self.text_peek = tk.Text(
+            right, bg=t["bg"], fg=t["fg"], insertwidth=0,
+            font=(MONO, 12), bd=0, highlightthickness=0, wrap="char",
+            padx=14, pady=10, takefocus=0, cursor="arrow",
+        )
+        self.text_peek.pack(side="top", fill="both", expand=True)
+        self._clone_tags(self.text_peek)
+        self.text_peek.bind("<Key>", lambda e: "break")
+        self.text_peek.bind("<Button-1>", lambda e: self._split_swap())
+        self.text_peek.bind("<MouseWheel>", self._peek_wheel)
+        self.text.see("end")
+
+    def _peek_wheel(self, event):
+        try:
+            self.text_peek.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        except Exception:
+            pass
+        return "break"
+
+    def _clone_tags(self, dst):
+        for tag in self.text.tag_names():
+            if tag == "sel":
+                continue
+            cfg = {}
+            for opt in ("foreground", "background", "font"):
+                try:
+                    v = self.text.tag_cget(tag, opt)
+                    if v:
+                        cfg[opt] = v
+                except Exception:
+                    pass
+            if cfg:
+                try:
+                    dst.tag_config(tag, **cfg)
+                except Exception:
+                    pass
+
+    def _split_peer_index(self):
+        snap = getattr(self, "_split_peer_snap", None)
+        if snap is None:
+            return None
+        for i, s in enumerate(self._tabs):
+            if s is snap:
+                return i
+        return None
+
+    def _split_recolor(self):
+        if not self.split_on or not self.split_frame:
+            return
+        t = self.theme
+        try:
+            self.split_frame.config(bg=t["bg"])
+            self.text.config(bg=t["bg"], fg=t["fg"])
+            self.split_right.config(bg=t["bg"])
+            self.split_div.config(bg=t["accent"])
+            self.peek_head.config(bg=t["bg_bar"], fg=t["dim"])
+            self.text_peek.config(bg=t["bg"], fg=t["fg"])
+        except Exception:
+            pass
+
+    def _split_render_peek(self):
+        if not self.split_on or not self.text_peek:
+            return
+        idx = self._split_peer_index()
+        if idx is None:
+            alt = [i for i, s in enumerate(self._tabs) if s is not None]
+            if not alt:
+                self._split_off()
+                self._insert("  Split-screen ferme (plus d'onglet a surveiller).\n", "dim")
+                self._write_prompt()
+                return
+            idx = alt[0]
+            self._split_peer_snap = self._tabs[idx]
+        snap = self._tabs[idx]
+        buf = snap.get("buffer", []) or []
+        name = self._tab_label(snap)
+        run = "  ⏳" if snap.get("running") else ""
+        self.peek_head.config(text="  👁  " + name + run + "   (clic = passer ici)")
+        self._split_recolor()
+        if self._peek_len == len(buf) and self._peek_idx == idx:
+            return
+        self._peek_len = len(buf)
+        self._peek_idx = idx
+        self._clone_tags(self.text_peek)
+        self.text_peek.delete("1.0", "end")
+        for seg, tag in buf[-600:]:
+            try:
+                self.text_peek.insert("end", seg, tag)
+            except Exception:
+                pass
+        st = snap.get("_cmd_st") or {}
+        if st.get("live"):
+            self.text_peek.insert("end", st["live"], "out")
+        self.text_peek.see("end")
+
+    def _split_tick(self):
+        if not self.split_on:
+            return
+        try:
+            self._split_render_peek()
+        except Exception:
+            pass
+        if self.split_on:
+            self._split_after = self.root.after(600, self._split_tick)
+
+    def _split_swap(self):
+        if not self.split_on:
+            return "break"
+        if self._tab_busy():
+            return "break"
+        idx = self._split_peer_index()
+        if idx is None or idx == self._active:
+            return "break"
+        old_active = self._active
+        self._switch_tab(idx)
+        if 0 <= old_active < len(self._tabs) and self._tabs[old_active] is not None:
+            self._split_peer_snap = self._tabs[old_active]
+        self._peek_len = -1
+        self._split_render_peek()
+        self.input_entry.focus_set()
+        return "break"
+
+    def _split_off(self):
+        if not self.split_on:
+            return
+        self.split_on = False
+        if self._split_after:
+            try:
+                self.root.after_cancel(self._split_after)
+            except Exception:
+                pass
+            self._split_after = None
+        try:
+            self.text.place_forget()
+        except Exception:
+            pass
+        if self.split_frame:
+            try:
+                self.split_frame.destroy()
+            except Exception:
+                pass
+        self.split_frame = None
+        self.text_peek = None
+        self._split_peer_snap = None
+        self.text.pack(side="top", fill="both", expand=True)
+        self.text.see("end")
 
     # ---- Coller des images (mode Claude) ----
 
