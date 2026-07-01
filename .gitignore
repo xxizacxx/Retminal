@@ -51,10 +51,11 @@ dmg-stage/
 images_collees/
 
 # ------------------------------------------------------------------
-#  Node (les petits sites)
+#  Node + petits sites perso (non publies)
 # ------------------------------------------------------------------
 node_modules/
-site_avancement/go.*
+site_idees/
+site_avancement/
 
 # ------------------------------------------------------------------
 #  Fichiers de test temporaires
