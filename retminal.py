@@ -28,6 +28,7 @@ MONO = "Consolas"
 CLAWD_HEX = "#d8825f"
 VERSION = "V 6.7 (Ultra)"
 RETY_GREEN = (174, 255, 201, 255)
+RETY_TURQ = (94, 230, 210, 255)
 CLAWD_ORANGE = (216, 130, 95, 255)
 CREATURE_NORMAL = [
     "...XXXXXXXXXXXX...",
@@ -1127,40 +1128,11 @@ class Retminal:
         try:
             self._strips = self._creature_strips(CREATURE_NORMAL, RETY_GREEN)
             self._clawd_strips = self._creature_strips(CREATURE_NORMAL, CLAWD_ORANGE)
-            self._carnet_mascot = self._carnet_strips()
+            self._carnet_mascot = self._creature_strips(CREATURE_NORMAL, RETY_TURQ)
         except Exception:
             self._strips = []
             self._clawd_strips = []
             self._carnet_mascot = []
-
-    def _carnet_strips(self):
-        from PIL import Image, ImageTk, ImageDraw
-
-        W, H = 90, 57
-        pxw, pxh = 4, 9
-        NAVY = (10, 14, 22, 255)
-        TURQ = (78, 224, 204, 255)
-        img = Image.new("RGBA", (W, H), NAVY)
-        d = ImageDraw.Draw(img)
-        ox, oy = 1, 1
-        for y, row in enumerate(CREATURE_NORMAL):
-            for x, ch in enumerate(row):
-                if ch == "X":
-                    d.rectangle(
-                        [ox + x * pxw, oy + y * pxh, ox + x * pxw + pxw - 1, oy + y * pxh + pxh - 1],
-                        fill=TURQ,
-                    )
-        nx, ny, nw, nh = 71, 14, 15, 26
-        d.rectangle([nx, ny, nx + nw, ny + nh], fill=(233, 242, 255, 255), outline=(90, 127, 181, 255))
-        d.rectangle([nx, ny, nx + nw, ny + 3], fill=(124, 184, 255, 255))
-        for i in range(3):
-            cx = nx + 3 + i * 5
-            d.ellipse([cx, ny - 2, cx + 2, ny + 1], fill=(124, 184, 255, 255))
-        for i in range(3):
-            ly = ny + 8 + i * 6
-            d.line([nx + 3, ly, nx + nw - 3, ly], fill=(120, 150, 195, 255), width=1)
-        d.rectangle([nx - 2, ny + 7, nx + 1, ny + 15], fill=TURQ)
-        return [ImageTk.PhotoImage(img.crop((0, i * 19, W, i * 19 + 19))) for i in range(3)]
 
     def _apply_theme(self, t):
         self.theme = t
