@@ -294,6 +294,10 @@ class Retminal:
 
     def __init__(self, root):
         self.root = root
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("xxizacxx.Retminal")
+        except Exception:
+            pass
         self.cwd = os.path.expanduser("~")
         self.history = []
         self.history_index = None
@@ -555,6 +559,7 @@ class Retminal:
 
     def _init_win32(self):
         self._enable_taskbar_button()
+        self._set_taskbar_icon()
         self._round_corners()
 
     def _enable_taskbar_button(self):
@@ -565,6 +570,23 @@ class Retminal:
             ctypes.windll.user32.SetWindowLongW(hwnd, -20, ex)
             ctypes.windll.user32.ShowWindow(hwnd, 0)
             ctypes.windll.user32.ShowWindow(hwnd, 5)
+        except Exception:
+            pass
+
+    def _set_taskbar_icon(self):
+        # met le vrai .ico sur le bouton de la barre des taches (meme depuis py retminal.py)
+        try:
+            ico = self._resource("Retminal.ico")
+            if not ico:
+                return
+            u = ctypes.windll.user32
+            hwnd = self._hwnd()
+            hbig = u.LoadImageW(None, ico, 1, 32, 32, 0x00000010)
+            hsmall = u.LoadImageW(None, ico, 1, 16, 16, 0x00000010)
+            if hbig:
+                u.SendMessageW(hwnd, 0x0080, 1, hbig)
+            if hsmall:
+                u.SendMessageW(hwnd, 0x0080, 0, hsmall)
         except Exception:
             pass
 
