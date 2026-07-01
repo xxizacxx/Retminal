@@ -54,6 +54,16 @@ Tu vois **tout** ce qu'il fait (le code qu'il écrit, les commandes qu'il lance)
 
 ---
 
+## 📓 Le carnet — éditeur de fichiers
+
+Tape **`nano <fichier>`** : Retminal ouvre un éditeur plein écran façon **carnet** (thème
+bleu nuit, Rety en haut qui tient son calepin 🐢). Tu édites **ligne par ligne**, la ligne
+choisie est surlignée, et tu sauves avec `Ctrl+S`. Ça marche sur ton PC **et** sur le VPS.
+
+![Retminal — le carnet (éditeur)](docs/nano.png)
+
+---
+
 ## 🚀 Installation
 
 Il te faut **Python 3.10+** (coche « Add Python to PATH » à l'installation sur Windows).
