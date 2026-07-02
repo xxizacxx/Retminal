@@ -319,6 +319,8 @@ class Retminal:
         self._split_side = 0
         self._split_pos = 0.5
         self._split_anim = None
+        self._ants_after = None
+        self._ants_off = 0
         self._tab_drag = None
         self.pal = None
         self._pal_items = []
@@ -8077,20 +8079,38 @@ class Retminal:
                      tk.Frame(self.split_frame, bg=t["bg"])]
         self.split_div = tk.Frame(self.split_frame, bg=t["accent"],
                                   cursor="sb_h_double_arrow")
+        self.p_ants = []
+        self.p_inner = []
         self.p_head = []
+        self.p_htxt = []
+        self.p_badge = []
         self.p_body = []
         self.p_inbar = []
         for k in (0, 1):
             pane = self.pane[k]
-            head = tk.Label(pane, text="", bg=t["bg_bar"], fg=t["dim"],
-                            font=(MONO, 9, "bold"), anchor="w", padx=10, cursor="hand2")
+            ants = tk.Canvas(pane, bg=t["bg"], highlightthickness=0, bd=0)
+            ants.place(relx=0, rely=0, relwidth=1.0, relheight=1.0)
+            inner = tk.Frame(pane, bg=t["bg"])
+            inner.place(x=5, y=5, relwidth=1.0, width=-10, relheight=1.0, height=-10)
+            head = tk.Frame(inner, bg=t["bg_bar"])
             head.pack(side="top", fill="x")
-            head.bind("<Button-1>", lambda e, s=k: self._split_focus_side(s))
-            inbar = tk.Frame(pane, bg=t["bg"], height=40)
+            badge = tk.Label(head, text=str(k + 1), bg=t["accent"], fg=t["bg"],
+                             font=(MONO, 9, "bold"), width=2, cursor="hand2")
+            badge.pack(side="left", padx=(4, 6), pady=2)
+            htxt = tk.Label(head, text="", bg=t["bg_bar"], fg=t["dim"],
+                            font=(MONO, 9, "bold"), anchor="w", cursor="hand2")
+            htxt.pack(side="left", fill="x", expand=True)
+            for _hw in (head, badge, htxt):
+                _hw.bind("<Button-1>", lambda e, s=k: self._split_focus_side(s))
+            self.p_htxt.append(htxt)
+            self.p_badge.append(badge)
+            inbar = tk.Frame(inner, bg=t["bg"], height=40)
             inbar.pack(side="bottom", fill="x")
             inbar.pack_propagate(False)
-            body = tk.Frame(pane, bg=t["bg"])
+            body = tk.Frame(inner, bg=t["bg"])
             body.pack(side="top", fill="both", expand=True)
+            self.p_ants.append(ants)
+            self.p_inner.append(inner)
             self.p_head.append(head)
             self.p_inbar.append(inbar)
             self.p_body.append(body)
@@ -8113,8 +8133,14 @@ class Retminal:
         for w_ in (self.proxy, self.proxy_lbl):
             w_.bind("<Button-1>", lambda e: self._split_focus_side(self._split_peek_side()))
         self.split_div.bind("<B1-Motion>", self._split_drag_div)
+        self.split_hint = tk.Label(
+            self.container, bg=t["bg"], fg=t["accent"], font=(MONO, 9), anchor="w",
+            text="  clique un cote pour y taper      ·      glisse un onglet vers un cote pour couper l'ecran      ·      tire la ligne du milieu pour agrandir",
+        )
+        self.split_hint.pack(side="bottom", fill="x", padx=10, pady=(0, 2))
         self._split_place_content()
         self._split_anim_open()
+        self._ants_after = self.root.after(120, self._split_ants_tick)
 
     def _split_peek_side(self):
         return 1 - self._split_side
@@ -8140,6 +8166,36 @@ class Retminal:
             self.split_div.lift()
         except Exception:
             pass
+        self._split_ants_draw()
+
+    def _split_ants_draw(self):
+        if not self.split_frame or not getattr(self, "p_ants", None):
+            return
+        t = self.theme
+        off = self._ants_off
+        for k in (0, 1):
+            c = self.p_ants[k]
+            try:
+                w = self.pane[k].winfo_width()
+                h = self.pane[k].winfo_height()
+                c.delete("all")
+                c.config(bg=t["bg"])
+                if w <= 2 or h <= 2:
+                    continue
+                active = (k == self._split_side)
+                col = t["accent"] if active else t["dim"]
+                wid = 2 if active else 1
+                c.create_rectangle(3, 3, w - 3, h - 3, outline=col, width=wid,
+                                   dash=(6, 4), dashoffset=off)
+            except Exception:
+                pass
+
+    def _split_ants_tick(self):
+        if not self.split_on:
+            return
+        self._ants_off = (self._ants_off + 2) % 10
+        self._split_ants_draw()
+        self._ants_after = self.root.after(110, self._split_ants_tick)
 
     def _split_place_content(self):
         if not self.split_frame:
@@ -8168,10 +8224,14 @@ class Retminal:
         peer = self._tabs[idx] if idx is not None else None
         peer_name = self._tab_label(peer) if peer else "onglet"
         prun = "  ⏳" if (peer and peer.get("running")) else ""
-        self.p_head[s].config(text="  ● " + self._live_label() + "   (ici tu ecris)",
+        self.p_head[s].config(bg=t["sel_bg"])
+        self.p_htxt[s].config(text="  ● " + self._live_label() + "   (ici tu ecris)",
                               bg=t["sel_bg"], fg=t["bright"])
-        self.p_head[o].config(text="  ○ " + peer_name + prun + "   (clic pour ecrire ici)",
+        self.p_badge[s].config(bg=t["accent"], fg=t["bg"])
+        self.p_head[o].config(bg=t["bg_bar"])
+        self.p_htxt[o].config(text="  ○ " + peer_name + prun + "   (clic pour ecrire ici)",
                               bg=t["bg_bar"], fg=t["dim"])
+        self.p_badge[o].config(bg=t["dim"], fg=t["bg"])
         self.proxy_lbl.config(text="clique pour taper dans  " + peer_name + "  ›")
         try:
             self.input_frame.config(highlightbackground=t["accent"],
@@ -8282,12 +8342,15 @@ class Retminal:
             self.split_div.config(bg=t["accent"])
             for k in (0, 1):
                 self.pane[k].config(bg=t["bg"])
+                self.p_inner[k].config(bg=t["bg"])
                 self.p_body[k].config(bg=t["bg"])
                 self.p_inbar[k].config(bg=t["bg"])
+                self.p_ants[k].config(bg=t["bg"])
             self.text.config(bg=t["bg"], fg=t["fg"])
             self.text_peek.config(bg=t["bg"], fg=t["fg"])
             self.proxy.config(bg=t["bg"], highlightbackground=t["dim"])
             self.proxy_lbl.config(bg=t["bg"], fg=t["dim"])
+            self.split_hint.config(bg=t["bg"], fg=t["accent"])
         except Exception:
             pass
 
@@ -8357,7 +8420,7 @@ class Retminal:
         if not self.split_on:
             return
         self.split_on = False
-        for aid in (self._split_after, self._split_anim):
+        for aid in (self._split_after, self._split_anim, self._ants_after):
             if aid:
                 try:
                     self.root.after_cancel(aid)
@@ -8365,16 +8428,20 @@ class Retminal:
                     pass
         self._split_after = None
         self._split_anim = None
+        self._ants_after = None
         for w_ in (self.text, self.input_frame):
             try:
                 w_.place_forget()
             except Exception:
                 pass
-        if self.split_frame:
-            try:
-                self.split_frame.destroy()
-            except Exception:
-                pass
+        for attr in ("split_frame", "split_hint"):
+            wdg = getattr(self, attr, None)
+            if wdg:
+                try:
+                    wdg.destroy()
+                except Exception:
+                    pass
+            setattr(self, attr, None)
         self.split_frame = None
         self.text_peek = None
         self.proxy = None
