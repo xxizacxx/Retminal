@@ -399,6 +399,11 @@ class Retminal:
         self._ants_after = None
         self._ants_off = 0
         self._tab_drag = None
+        self.ultra_on = True
+        self._ultra_after = None
+        self._ultra_phase = 0.0
+        self._active_tab_cell = None
+        self._live_dot = None
         self.pal = None
         self._pal_items = []
         self._pal_sel = 0
@@ -542,6 +547,8 @@ class Retminal:
             "fenêtre": self.cmd_fenetre,
             "window": self.cmd_fenetre,
             "newwindow": self.cmd_fenetre,
+            "dynamic": self.cmd_dynamic,
+            "dynamique": self.cmd_dynamic,
             "copy": self.cmd_copy,
             "copier": self.cmd_copy,
             "clean": self.cmd_clean,
@@ -595,7 +602,9 @@ class Retminal:
         self._update_status()
         self._apply_keybinds()
         self.input_entry.focus_set()
+        self._ultra_fade_in()
         self.root.after(80, self._init_win32)
+        self.root.after(260, self._ultra_start)
         if IS_MAC:
             self.root.after(120, self._mac_grab_focus)
         threading.Thread(target=self._scan_local_commands, daemon=True).start()
@@ -1024,6 +1033,10 @@ class Retminal:
 
         self.status_bar = tk.Frame(container, bg=BG)
         self.status_bar.pack(side="bottom", fill="x", padx=12, pady=(0, 5))
+        self._live_dot = tk.Label(
+            self.status_bar, text="●", bg=BG, fg=FG_BRIGHT, font=(MONO, 9),
+        )
+        self._live_dot.pack(side="left", padx=(0, 5))
         self.status_label = tk.Label(
             self.status_bar,
             text="» Local",
@@ -1565,6 +1578,8 @@ class Retminal:
         self.text.tag_config("cfgbox", foreground=t["dim"])
         self.status_bar.configure(bg=t["bg"])
         self.status_label.configure(bg=t["bg"])
+        if self._live_dot is not None:
+            self._live_dot.configure(bg=t["bg"])
         self.status_hint.configure(bg=t["bg"], fg=t["dim"])
         self.version_label.configure(bg=t["bg"], fg=t["dim"])
         self.conn_badge.configure(bg=t["bg"])
@@ -2798,6 +2813,7 @@ class Retminal:
                 "copy", "copier", "clean", "nettoyer", "palette",
                 "raccourci", "raccourcis", "keybind",
                 "split", "splitscreen", "fenetre", "fenêtre", "window", "newwindow",
+                "dynamic", "dynamique",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -3804,6 +3820,7 @@ class Retminal:
             ("raccourci", "cree un raccourci clavier perso (ex: raccourci ctrl+g config)"),
             ("split", "coupe l'ecran en 2 terminaux (chacun sa barre) — ou glisse un onglet sur un cote"),
             ("fenetre", "ouvre une NOUVELLE fenetre Retminal (aussi Ctrl+N)"),
+            ("dynamic", "toute l'appli respire/s'anime (dynamic off = mode calme)"),
             ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
             ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
@@ -5073,6 +5090,7 @@ class Retminal:
         self.default_shell = data.get("default_shell", "")
         kb = data.get("keybinds", {})
         self.keybinds = kb if isinstance(kb, dict) else {}
+        self.ultra_on = bool(data.get("dynamic", True))
 
     def _save_settings(self):
         try:
@@ -5083,6 +5101,7 @@ class Retminal:
                     "theme": getattr(self, "config_theme", "vert"),
                     "default_shell": getattr(self, "default_shell", ""),
                     "keybinds": getattr(self, "keybinds", {}),
+                    "dynamic": getattr(self, "ultra_on", True),
                 }, f)
         except Exception:
             pass
@@ -7737,6 +7756,7 @@ class Retminal:
             return
         for w in self.tab_bar.winfo_children():
             w.destroy()
+        self._active_tab_cell = None
         t = self.theme
         for i in range(len(self._tabs)):
             if i == self._active:
@@ -7758,6 +7778,8 @@ class Retminal:
                 highlightthickness=1,
             )
             cell.pack(side="left", padx=(6, 0), pady=3)
+            if active:
+                self._active_tab_cell = cell
             lab = tk.Label(
                 cell, text=" " + str(i + 1) + " " + label + " ",
                 bg=t["sel_bg"] if active else t["bg_bar"],
@@ -7766,6 +7788,11 @@ class Retminal:
                 cursor="hand2",
             )
             lab.pack(side="left")
+            if not active:
+                cell.bind("<Enter>", lambda e, c=cell, l=lab: self._tab_hover(c, l, True))
+                cell.bind("<Leave>", lambda e, c=cell, l=lab: self._tab_hover(c, l, False))
+                lab.bind("<Enter>", lambda e, c=cell, l=lab: self._tab_hover(c, l, True))
+                lab.bind("<Leave>", lambda e, c=cell, l=lab: self._tab_hover(c, l, False))
             lab.bind("<ButtonPress-1>", lambda e, idx=i: self._tab_press(e, idx))
             lab.bind("<B1-Motion>", self._tab_motion)
             lab.bind("<ButtonRelease-1>", self._tab_release)
@@ -8284,7 +8311,8 @@ class Retminal:
     def _split_ants_tick(self):
         if not self.split_on:
             return
-        self._ants_off = (self._ants_off + 2) % 10
+        if self.ultra_on:
+            self._ants_off = (self._ants_off + 2) % 10
         self._split_ants_draw()
         self._ants_after = self.root.after(110, self._split_ants_tick)
 
@@ -8668,6 +8696,128 @@ class Retminal:
             self._split_on(active_side=side)
         else:
             self._split_on(peer_idx=idx, active_side=1 - side)
+
+    # ---- Mode ULTRA DYNAMIQUE (toute l'appli respire) ----
+
+    def _blend(self, c1, c2, t):
+        try:
+            a = c1.lstrip("#")
+            b = c2.lstrip("#")
+            r = int(a[0:2], 16) + (int(b[0:2], 16) - int(a[0:2], 16)) * t
+            g = int(a[2:4], 16) + (int(b[2:4], 16) - int(a[2:4], 16)) * t
+            bl = int(a[4:6], 16) + (int(b[4:6], 16) - int(a[4:6], 16)) * t
+            return "#%02x%02x%02x" % (int(r), int(g), int(bl))
+        except Exception:
+            return c2
+
+    def _ultra_start(self):
+        if not self.ultra_on or self._ultra_after is not None:
+            return
+        self._ultra_after = self.root.after(55, self._ultra_tick)
+
+    def _ultra_stop(self):
+        if self._ultra_after:
+            try:
+                self.root.after_cancel(self._ultra_after)
+            except Exception:
+                pass
+            self._ultra_after = None
+        self._ultra_restore()
+
+    def _ultra_restore(self):
+        t = self.theme
+        try:
+            self.container.config(highlightbackground=t["border"])
+        except Exception:
+            pass
+        try:
+            if not self.split_on:
+                self.input_frame.config(highlightbackground=t.get("input_border", t["dim"]))
+        except Exception:
+            pass
+        if self._active_tab_cell is not None:
+            try:
+                self._active_tab_cell.config(highlightbackground=t["accent"])
+            except Exception:
+                pass
+        if self._live_dot is not None:
+            try:
+                self._live_dot.config(fg=t["accent"])
+            except Exception:
+                pass
+
+    def _ultra_tick(self):
+        if not self.ultra_on:
+            self._ultra_after = None
+            return
+        self._ultra_phase = (self._ultra_phase + 0.045) % 1.0
+        p = self._ultra_phase * 2.0
+        if p > 1.0:
+            p = 2.0 - p
+        t = self.theme
+        glow = self._blend(t["dim"], t["accent"], p)
+        try:
+            self.container.config(highlightbackground=glow)
+        except Exception:
+            pass
+        if not self.split_on:
+            try:
+                self.input_frame.config(highlightbackground=glow)
+            except Exception:
+                pass
+        if self._active_tab_cell is not None:
+            try:
+                self._active_tab_cell.config(highlightbackground=glow)
+            except Exception:
+                pass
+        if self._live_dot is not None:
+            try:
+                self._live_dot.config(fg=self._blend(t["bg"], t["accent"], max(0.2, p)))
+            except Exception:
+                pass
+        self._ultra_after = self.root.after(55, self._ultra_tick)
+
+    def _ultra_fade_in(self):
+        if not self.ultra_on:
+            return
+        try:
+            self.root.attributes("-alpha", 0.0)
+        except Exception:
+            return
+
+        def step(a):
+            try:
+                self.root.attributes("-alpha", min(1.0, a))
+            except Exception:
+                return
+            if a < 1.0:
+                self.root.after(15, lambda: step(a + 0.12))
+
+        step(0.15)
+
+    def _tab_hover(self, cell, lab, on):
+        if cell is self._active_tab_cell:
+            return
+        t = self.theme
+        try:
+            cell.config(highlightbackground=t["accent"] if on else t["border"])
+            lab.config(fg=t["bright"] if on else t["dim"])
+        except Exception:
+            pass
+
+    def cmd_dynamic(self, cmd):
+        parts = cmd.split()
+        arg = parts[1].lower() if len(parts) > 1 else ("off" if self.ultra_on else "on")
+        if arg in ("off", "non", "0", "stop", "calme"):
+            self.ultra_on = False
+            self._ultra_stop()
+            self._insert("  Animations coupees (mode calme).  Tape 'dynamic on' pour les rallumer.\n", "dim")
+        else:
+            self.ultra_on = True
+            self._ultra_start()
+            self._insert("  ⚡ Mode ULTRA DYNAMIQUE active !  Toute l'appli respire.\n", "bright")
+        self._save_settings()
+        self._write_prompt()
 
     # ---- Coller des images (mode Claude) ----
 
