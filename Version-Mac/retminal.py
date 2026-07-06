@@ -86,6 +86,14 @@ CREATURE_NORMAL = [
     "....X.X....X.X....",
     "..................",
 ]
+CREATURE_BLINK = [
+    "...XXXXXXXXXXXX...",
+    "...XXXXXXXXXXXX...",
+    ".XXXXXXXXXXXXXXXX.",
+    "...XXXXXXXXXXXX...",
+    "....X.X....X.X....",
+    "..................",
+]
 
 THEME_GREEN = {
     "bg": BG, "bg_bar": BG_BAR, "border": BORDER,
@@ -406,6 +414,9 @@ class Retminal:
         self._live_dot = None
         self._scan = None
         self._scan_x = 0
+        self._strips_blink = []
+        self._mascot_imgs = []
+        self._blink_ct = 0
         self.pal = None
         self._pal_items = []
         self._pal_sel = 0
@@ -1522,10 +1533,12 @@ class Retminal:
             self._strip_w = 90
         try:
             self._strips = self._creature_strips(CREATURE_NORMAL, RETY_GREEN)
+            self._strips_blink = self._creature_strips(CREATURE_BLINK, RETY_GREEN)
             self._clawd_strips = self._creature_strips(CREATURE_NORMAL, CLAWD_ORANGE)
             self._carnet_mascot = self._creature_strips(CREATURE_NORMAL, RETY_TURQ)
         except Exception:
             self._strips = []
+            self._strips_blink = []
             self._clawd_strips = []
             self._carnet_mascot = []
 
@@ -1630,6 +1643,7 @@ class Retminal:
         ]
         self.header.mark_set("logo_cursor", "1.0")
         self.header.mark_gravity("logo_cursor", "right")
+        self._mascot_imgs = []
 
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
@@ -1638,9 +1652,10 @@ class Retminal:
         for strip, text, ttag in rows:
             put("  ", "out")
             if strip is not None and self._strips:
-                self.header.image_create(
+                nm = self.header.image_create(
                     "logo_cursor", image=self._strips[strip], align="top"
                 )
+                self._mascot_imgs.append(nm)
             else:
                 put(" " * 10, "out")
             put("   ", "out")
@@ -8761,11 +8776,12 @@ class Retminal:
                 self._live_dot.config(fg=t["accent"])
             except Exception:
                 pass
-        if self._scan is not None:
-            try:
-                self._scan.place_forget()
-            except Exception:
-                pass
+        if isinstance(self._scan, list):
+            for fr in self._scan:
+                try:
+                    fr.place_forget()
+                except Exception:
+                    pass
 
     def _ultra_tick(self):
         if not self.ultra_on:
@@ -8777,6 +8793,10 @@ class Retminal:
                 return
         except Exception:
             pass
+        self._blink_ct += 1
+        if self._blink_ct >= 58:
+            self._blink_ct = 0
+            self._blink_mascot()
         self._ultra_phase = (self._ultra_phase + 0.045) % 1.0
         p = self._ultra_phase * 2.0
         if p > 1.0:
@@ -8803,13 +8823,16 @@ class Retminal:
             except Exception:
                 pass
         try:
-            if self._scan is None:
-                self._scan = tk.Frame(self.container, bg=t["accent"])
+            if not isinstance(self._scan, list):
+                self._scan = [tk.Frame(self.container) for _ in range(3)]
             w = self.container.winfo_width()
-            self._scan_x = (self._scan_x + 13) % (w + 220)
-            self._scan.config(bg=self._blend(t["bg"], t["accent"], 0.85))
-            self._scan.place(x=self._scan_x - 110, y=62, width=110, height=2)
-            self._scan.lift()
+            self._scan_x = (self._scan_x + 15) % (w + 280)
+            for fr, (off, wid, br) in zip(
+                self._scan, ((44, 44, 0.95), (84, 40, 0.55), (118, 34, 0.3))
+            ):
+                fr.config(bg=self._blend(t["bg"], t["accent"], br))
+                fr.place(x=self._scan_x - off, y=62, width=wid, height=3)
+                fr.lift()
         except Exception:
             pass
         self._ultra_after = self.root.after(55, self._ultra_tick)
@@ -8839,6 +8862,32 @@ class Retminal:
         try:
             cell.config(highlightbackground=t["accent"] if on else t["border"])
             lab.config(fg=t["bright"] if on else t["dim"])
+        except Exception:
+            pass
+
+    def _blink_mascot(self):
+        if self.claude_mode or self._sysmon_on:
+            return
+        imgs = self._mascot_imgs
+        blink = self._strips_blink
+        if not imgs or not blink:
+            return
+        try:
+            for i, nm in enumerate(imgs):
+                if i < len(blink):
+                    self.header.image_configure(nm, image=blink[i])
+            self.root.after(140, self._blink_open)
+        except Exception:
+            pass
+
+    def _blink_open(self):
+        imgs = self._mascot_imgs
+        if not imgs or not self._strips:
+            return
+        try:
+            for i, nm in enumerate(imgs):
+                if i < len(self._strips):
+                    self.header.image_configure(nm, image=self._strips[i])
         except Exception:
             pass
 
