@@ -47,8 +47,32 @@ CREATURE_BLINK = [
     "..................",
 ]
 CREATURE_HAPPY = [
+    "...XXXXXXXXXXXX...",
     "...XX.XXXXXX.XX...",
-    "...X.X.XXXX.X.X...",
+    ".XXX.X.XXXX.X.XXX.",
+    "...XXXXXXXXXXXX...",
+    "....X.X....X.X....",
+    "..................",
+]
+CREATURE_OOPS = [
+    "...XX.XXXXXX.XX...",
+    "...XX.XXXXXX.XX...",
+    ".XXXXXXXXXXXXXXXX.",
+    "...XXXXXXXXXXXX...",
+    "....X.X....X.X....",
+    "..................",
+]
+CREATURE_LOOK_L = [
+    "...XXXXXXXXXXXX...",
+    "...X.XXXXXX.XXX...",
+    ".XXXXXXXXXXXXXXXX.",
+    "...XXXXXXXXXXXX...",
+    "....X.X....X.X....",
+    "..................",
+]
+CREATURE_LOOK_R = [
+    "...XXXXXXXXXXXX...",
+    "...XXX.XXXXXX.X...",
     ".XXXXXXXXXXXXXXXX.",
     "...XXXXXXXXXXXX...",
     "....X.X....X.X....",
@@ -373,8 +397,13 @@ class Retminal:
         self._scan_x = 0
         self._strips_blink = []
         self._strips_happy = []
+        self._strips_oops = []
+        self._strips_lookl = []
+        self._strips_lookr = []
         self._clawd_happy = []
         self._mascot_imgs = []
+        self._mascot_color = None
+        self._mascot_busy = False
         self._blink_ct = 0
         self._last_running = False
         self.pal = None
@@ -1427,11 +1456,36 @@ class Retminal:
             for i in range(3)
         ]
 
+    def _hex_rgba(self, h):
+        try:
+            h = h.lstrip("#")
+            return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+        except Exception:
+            return RETY_GREEN
+
+    def _rety_theme_accent(self):
+        name = getattr(self, "config_theme", "vert")
+        return THEMES.get(name, THEME_GREEN).get("accent", "#aeffc9")
+
+    def _rety_color(self):
+        return self._hex_rgba(self._rety_theme_accent())
+
+    def _ensure_mascot_color(self):
+        col = self._rety_theme_accent()
+        if col != self._mascot_color:
+            self._mascot_color = col
+            self._make_strips()
+
     def _make_strips(self):
         try:
-            self._strips = self._creature_strips(CREATURE_NORMAL, RETY_GREEN)
-            self._strips_blink = self._creature_strips(CREATURE_BLINK, RETY_GREEN)
-            self._strips_happy = self._creature_strips(CREATURE_HAPPY, RETY_GREEN)
+            col = self._rety_color()
+            self._mascot_color = self._rety_theme_accent()
+            self._strips = self._creature_strips(CREATURE_NORMAL, col)
+            self._strips_blink = self._creature_strips(CREATURE_BLINK, col)
+            self._strips_happy = self._creature_strips(CREATURE_HAPPY, col)
+            self._strips_oops = self._creature_strips(CREATURE_OOPS, col)
+            self._strips_lookl = self._creature_strips(CREATURE_LOOK_L, col)
+            self._strips_lookr = self._creature_strips(CREATURE_LOOK_R, col)
             self._clawd_strips = self._creature_strips(CREATURE_NORMAL, CLAWD_ORANGE)
             self._clawd_happy = self._creature_strips(CREATURE_HAPPY, CLAWD_ORANGE)
             self._carnet_mascot = self._creature_strips(CREATURE_NORMAL, RETY_TURQ)
@@ -1439,6 +1493,9 @@ class Retminal:
             self._strips = []
             self._strips_blink = []
             self._strips_happy = []
+            self._strips_oops = []
+            self._strips_lookl = []
+            self._strips_lookr = []
             self._clawd_strips = []
             self._clawd_happy = []
             self._carnet_mascot = []
@@ -1473,7 +1530,7 @@ class Retminal:
         self.status_bar.configure(bg=t["bg"])
         self.status_label.configure(bg=t["bg"])
         if self._live_dot is not None:
-            self._live_dot.configure(bg=t["bg"])
+            self._live_dot.configure(bg=t["bg"], fg=t["accent"])
         self.status_hint.configure(bg=t["bg"], fg=t["dim"])
         self.version_label.configure(bg=t["bg"], fg=t["dim"])
         self.conn_badge.configure(bg=t["bg"])
@@ -1502,6 +1559,7 @@ class Retminal:
             (None, "", "out"),
         ]
 
+        self._ensure_mascot_color()
         self.header.mark_set("logo_cursor", "1.0")
         self.header.mark_gravity("logo_cursor", "right")
         self._mascot_imgs = []
@@ -1539,20 +1597,23 @@ class Retminal:
             (2, "Ecris ta question  ·  'exit' pour revenir", "dim"),
             (None, "", "out"),
         ]
+        self._ensure_mascot_color()
         self.header.mark_set("logo_cursor", "1.0")
         self.header.mark_gravity("logo_cursor", "right")
+        self._mascot_imgs = []
 
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
 
         clawd = getattr(self, "_clawd_happy", []) or getattr(self, "_clawd_strips", [])
-        rety = getattr(self, "_strips_happy", []) or getattr(self, "_strips", [])
+        rety = getattr(self, "_strips", [])
         put(top + "\n", "orangebold")
         for strip, text, ttag in rows:
             put("│ ", "orangebold")
             if strip is not None and clawd and rety:
                 self.header.image_create("logo_cursor", image=clawd[strip], align="top")
-                self.header.image_create("logo_cursor", image=rety[strip], align="top")
+                nm = self.header.image_create("logo_cursor", image=rety[strip], align="top")
+                self._mascot_imgs.append(nm)
             else:
                 put(" " * 20, "out")
             put("   ", "out")
@@ -3573,6 +3634,8 @@ class Retminal:
         if buf is self.buffer:
             self.running = False
             self.proc = None
+            self._last_running = False
+            self._react_command_done(getattr(proc, "returncode", None))
             self._run_next_in_queue()
         else:
             for snap in self._tabs:
@@ -8711,26 +8774,13 @@ class Retminal:
         self._ultra_restore()
 
     def _ultra_restore(self):
-        t = self.theme
         try:
-            self.container.config(highlightbackground=t["border"])
+            self.container.config(highlightbackground=self.theme["border"])
         except Exception:
             pass
-        try:
-            if not self.split_on:
-                self.input_frame.config(highlightbackground=t.get("input_border", t["dim"]))
-        except Exception:
-            pass
-        if self._active_tab_cell is not None:
-            try:
-                self._active_tab_cell.config(highlightbackground=t["accent"])
-            except Exception:
-                pass
-        if self._live_dot is not None:
-            try:
-                self._live_dot.config(fg=t["accent"])
-            except Exception:
-                pass
+        self._mascot_busy = False
+        self._apply_mascot(self._strips)
+
     def _ultra_tick(self):
         if not self.ultra_on:
             self._ultra_after = None
@@ -8741,41 +8791,21 @@ class Retminal:
                 return
         except Exception:
             pass
+        if self._sysmon_on:
+            self._ultra_after = self.root.after(200, self._ultra_tick)
+            return
         if self.running != self._last_running:
             self._last_running = self.running
-            if not self.claude_mode and not self._sysmon_on:
-                self._apply_mascot(self._mascot_base())
-        if not self.running:
+            self._mascot_busy = False
+            self._apply_mascot(self._mascot_base())
+        if not self.running and not self._mascot_busy:
             self._blink_ct += 1
-            if self._blink_ct >= 58:
+            if self._blink_ct == 52:
+                self._do_blink()
+            elif self._blink_ct >= 100:
                 self._blink_ct = 0
-                self._blink_mascot()
-        self._ultra_phase = (self._ultra_phase + 0.045) % 1.0
-        p = self._ultra_phase * 2.0
-        if p > 1.0:
-            p = 2.0 - p
-        t = self.theme
-        glow = self._blend(t["dim"], t["accent"], p)
-        try:
-            self.container.config(highlightbackground=glow)
-        except Exception:
-            pass
-        if not self.split_on:
-            try:
-                self.input_frame.config(highlightbackground=glow)
-            except Exception:
-                pass
-        if self._active_tab_cell is not None:
-            try:
-                self._active_tab_cell.config(highlightbackground=glow)
-            except Exception:
-                pass
-        if self._live_dot is not None:
-            try:
-                self._live_dot.config(fg=self._blend(t["bg"], t["accent"], max(0.2, p)))
-            except Exception:
-                pass
-        self._ultra_after = self.root.after(55, self._ultra_tick)
+                self._do_look()
+        self._ultra_after = self.root.after(60, self._ultra_tick)
 
     def _ultra_fade_in(self):
         if not self.ultra_on:
@@ -8821,16 +8851,53 @@ class Retminal:
             return self._strips_happy
         return self._strips
 
-    def _blink_mascot(self):
-        if self.claude_mode or self._sysmon_on or self.running:
-            return
+    def _mascot_restore(self):
+        self._mascot_busy = False
+        self._apply_mascot(self._mascot_base())
+
+    def _do_blink(self):
         if not self._strips_blink:
             return
+        self._mascot_busy = True
         self._apply_mascot(self._strips_blink)
-        self.root.after(140, self._blink_open)
+        self.root.after(130, self._mascot_restore)
 
-    def _blink_open(self):
-        self._apply_mascot(self._mascot_base())
+    def _do_look(self):
+        if not self._strips_lookl:
+            return
+        self._mascot_busy = True
+        self._apply_mascot(self._strips_lookl)
+
+        def to_right():
+            if self._mascot_busy:
+                self._apply_mascot(self._strips_lookr)
+        self.root.after(430, to_right)
+        self.root.after(880, self._mascot_restore)
+
+    def _react_command_done(self, rc):
+        if not self.ultra_on:
+            return
+        ok = rc in (None, 0)
+        self._flash_border(self.theme["accent"] if ok else "#ff5a5a")
+        if not ok and self._strips_oops:
+            self._mascot_busy = True
+            self._apply_mascot(self._strips_oops)
+            self.root.after(850, self._mascot_restore)
+        else:
+            self._mascot_busy = False
+            self._apply_mascot(self._mascot_base())
+
+    def _flash_border(self, color):
+        self._flash_border_step(color, 7)
+
+    def _flash_border_step(self, color, n):
+        try:
+            c = self._blend(self.theme["border"], color, n / 7.0)
+            self.container.config(highlightbackground=c)
+        except Exception:
+            pass
+        if n > 0:
+            self.root.after(45, lambda: self._flash_border_step(color, n - 1))
 
     def cmd_dynamic(self, cmd):
         parts = cmd.split()
@@ -8862,8 +8929,9 @@ class Retminal:
         self._save_settings()
         if not self.claude_mode:
             self._apply_theme(THEMES[name])
+            self._render_logo()
             self._render_tabs()
-        self._insert("  🎨 Theme applique : " + name + " !\n", "bright")
+        self._insert("  🎨 Theme applique : " + name + " !  (Rety aussi !)\n", "bright")
         self._write_prompt()
 
     # ---- Coller des images (mode Claude) ----
