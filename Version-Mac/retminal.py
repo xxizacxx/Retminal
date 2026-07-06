@@ -88,8 +88,8 @@ CREATURE_NORMAL = [
 ]
 CREATURE_WALK = [
     "...XXXXXXXXXXXX...",
-    ".X.XX.XXXXXX.XX.X.",
-    "..XXXXXXXXXXXXXX..",
+    "XX.XX.XXXXXX.XX.XX",
+    ".XXXXXXXXXXXXXXXX.",
     "...XXXXXXXXXXXX...",
     ".....XX....XX.....",
     "..................",
