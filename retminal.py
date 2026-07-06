@@ -46,6 +46,14 @@ CREATURE_BLINK = [
     "....X.X....X.X....",
     "..................",
 ]
+CREATURE_HAPPY = [
+    "...XX.XXXXXX.XX...",
+    "...X.X.XXXX.X.X...",
+    ".XXXXXXXXXXXXXXXX.",
+    "...XXXXXXXXXXXX...",
+    "....X.X....X.X....",
+    "..................",
+]
 
 THEME_GREEN = {
     "bg": BG, "bg_bar": BG_BAR, "border": BORDER,
@@ -65,13 +73,39 @@ THEME_BLUE = {
     "prompt": "#79b4ff", "input_border": "#42618f", "sel_bg": "#163259",
     "code_bg": "#101d33", "accent": "#a8ccff",
 }
+THEME_ROSE = {
+    "bg": "#160910", "bg_bar": "#0f0609", "border": "#43182c",
+    "fg": "#ff8ac9", "dim": "#a55480", "bright": "#ffc6e4", "cyan": "#f7a8ff",
+    "prompt": "#ffb0dc", "input_border": "#a55480", "sel_bg": "#3f1330",
+    "code_bg": "#2a0f1f", "accent": "#ffc6e4",
+}
+THEME_RED = {
+    "bg": "#150707", "bg_bar": "#0d0404", "border": "#481818",
+    "fg": "#ff6363", "dim": "#9e3b3b", "bright": "#ffb5b5", "cyan": "#ff9a72",
+    "prompt": "#ff8585", "input_border": "#9e3b3b", "sel_bg": "#3f1414",
+    "code_bg": "#2a0d0d", "accent": "#ff7a7a",
+}
+THEME_PURPLE = {
+    "bg": "#0f0a17", "bg_bar": "#090610", "border": "#301c4d",
+    "fg": "#b98cff", "dim": "#6f4aae", "bright": "#dcc6ff", "cyan": "#9f8bff",
+    "prompt": "#c9a8ff", "input_border": "#6f4aae", "sel_bg": "#271145",
+    "code_bg": "#1b0f30", "accent": "#dcc6ff",
+}
+THEME_CYAN = {
+    "bg": "#071615", "bg_bar": "#041110", "border": "#164543",
+    "fg": "#4de3e0", "dim": "#2f8f8c", "bright": "#a8fff9", "cyan": "#56f5ec",
+    "prompt": "#7dfff9", "input_border": "#2f8f8c", "sel_bg": "#0e3c39",
+    "code_bg": "#0a2725", "accent": "#a8fff9",
+}
 MC_COLORS = {
     "0": "#3c3c3c", "1": "#0000aa", "2": "#00aa00", "3": "#00aaaa",
     "4": "#aa0000", "5": "#aa00aa", "6": "#ffaa00", "7": "#aaaaaa",
     "8": "#555555", "9": "#5555ff", "a": "#55ff55", "b": "#55ffff",
     "c": "#ff5555", "d": "#ff55ff", "e": "#ffff55", "f": "#ffffff",
 }
-THEMES = {"vert": THEME_GREEN, "bleu": THEME_BLUE, "orange": THEME_CLAUDE}
+THEMES = {"vert": THEME_GREEN, "bleu": THEME_BLUE, "orange": THEME_CLAUDE,
+          "rose": THEME_ROSE, "rouge": THEME_RED, "violet": THEME_PURPLE,
+          "cyan": THEME_CYAN}
 
 
 def _app_dir():
@@ -338,8 +372,11 @@ class Retminal:
         self._scan = None
         self._scan_x = 0
         self._strips_blink = []
+        self._strips_happy = []
+        self._clawd_happy = []
         self._mascot_imgs = []
         self._blink_ct = 0
+        self._last_running = False
         self.pal = None
         self._pal_items = []
         self._pal_sel = 0
@@ -489,6 +526,8 @@ class Retminal:
             "newwindow": self.cmd_fenetre,
             "dynamic": self.cmd_dynamic,
             "dynamique": self.cmd_dynamic,
+            "theme": self.cmd_theme,
+            "couleur": self.cmd_theme,
             "copy": self.cmd_copy,
             "copier": self.cmd_copy,
             "clean": self.cmd_clean,
@@ -1392,12 +1431,16 @@ class Retminal:
         try:
             self._strips = self._creature_strips(CREATURE_NORMAL, RETY_GREEN)
             self._strips_blink = self._creature_strips(CREATURE_BLINK, RETY_GREEN)
+            self._strips_happy = self._creature_strips(CREATURE_HAPPY, RETY_GREEN)
             self._clawd_strips = self._creature_strips(CREATURE_NORMAL, CLAWD_ORANGE)
+            self._clawd_happy = self._creature_strips(CREATURE_HAPPY, CLAWD_ORANGE)
             self._carnet_mascot = self._creature_strips(CREATURE_NORMAL, RETY_TURQ)
         except Exception:
             self._strips = []
             self._strips_blink = []
+            self._strips_happy = []
             self._clawd_strips = []
+            self._clawd_happy = []
             self._carnet_mascot = []
 
     def _apply_theme(self, t):
@@ -1450,7 +1493,7 @@ class Retminal:
             return
         iw = max(56, self._logo_cols() - 4)
         prefix = "─── Retminal " + VERSION + " "
-        top = "╭" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "╮"
+        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
         rows = [
             (None, "", "out"),
             (0, "Welcome back, xxizacxx !", "bright"),
@@ -1481,14 +1524,14 @@ class Retminal:
             used = 10 + 3 + len(text)
             put(" " * max(0, iw - used), "out")
             put(" │\n", "boxbold")
-        put("╰" + "─" * (iw + 2) + "╯", "boxbold")
+        put("└" + "─" * (iw + 2) + "┘", "boxbold")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
     def _write_claude_logo(self):
         iw = max(56, self._logo_cols() - 4)
         prefix = "─── Claude Code  ×  Retminal " + VERSION + " "
-        top = "╭" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "╮"
+        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
         rows = [
             (None, "", "out"),
             (0, "Clawd  &  Rety  sont ensemble !", "orangebold"),
@@ -1502,8 +1545,8 @@ class Retminal:
         def put(text, tag):
             self.header.insert("logo_cursor", text, tag)
 
-        clawd = getattr(self, "_clawd_strips", [])
-        rety = getattr(self, "_strips", [])
+        clawd = getattr(self, "_clawd_happy", []) or getattr(self, "_clawd_strips", [])
+        rety = getattr(self, "_strips_happy", []) or getattr(self, "_strips", [])
         put(top + "\n", "orangebold")
         for strip, text, ttag in rows:
             put("│ ", "orangebold")
@@ -1517,7 +1560,7 @@ class Retminal:
             used = 20 + 3 + len(text)
             put(" " * max(0, iw - used), "out")
             put(" │\n", "orangebold")
-        put("╰" + "─" * (iw + 2) + "╯", "orangebold")
+        put("└" + "─" * (iw + 2) + "┘", "orangebold")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
@@ -1527,7 +1570,7 @@ class Retminal:
         nlines = len(getattr(self, "_ed_lines", []) or [])
         iw = max(56, self._logo_cols() - 4)
         prefix = "─── CARNET (editeur)  ·  Retminal " + VERSION + " "
-        top = "╭" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "╮"
+        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
         rows = [
             (None, "", "out"),
             (0, "Le carnet de xxizacxx  —  " + name + dirty, "bright"),
@@ -1555,7 +1598,7 @@ class Retminal:
             used = 10 + 3 + len(text)
             put(" " * max(0, iw - used), "out")
             put(" │\n", "boxbold")
-        put("╰" + "─" * (iw + 2) + "╯", "boxbold")
+        put("└" + "─" * (iw + 2) + "┘", "boxbold")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
@@ -1586,7 +1629,7 @@ class Retminal:
             line2 = "  [q] Quitter    ·    [espace] Pause    ·    maj chaque seconde"
         iw = max(56, self._logo_cols() - 4)
         prefix = "─── " + label + "  ·  Retminal " + VERSION + " "
-        top = "╭" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "╮"
+        top = "┌" + prefix + "─" * max(0, (iw + 2) - len(prefix)) + "┐"
         rows = [
             ("", "out"),
             (line1, "bright"),
@@ -1605,7 +1648,7 @@ class Retminal:
             put(text, ttag)
             put(" " * max(0, iw - len(text)), "out")
             put(" │\n", "boxbold")
-        put("╰" + "─" * (iw + 2) + "╯", "boxbold")
+        put("└" + "─" * (iw + 2) + "┘", "boxbold")
         self.header.mark_set("logo_end", "logo_cursor")
         self.header.mark_gravity("logo_end", "left")
 
@@ -2660,7 +2703,7 @@ class Retminal:
                 "copy", "copier", "clean", "nettoyer", "palette",
                 "raccourci", "raccourcis", "keybind",
                 "split", "splitscreen", "fenetre", "fenêtre", "window", "newwindow",
-                "dynamic", "dynamique",
+                "dynamic", "dynamique", "theme", "couleur",
                 "nano", "vim", "vi", "edit",
             ):
                 self.custom[name](cmd)
@@ -3597,6 +3640,7 @@ class Retminal:
             ("split", "coupe l'ecran en 2 terminaux (chacun sa barre) — ou glisse un onglet sur un cote"),
             ("fenetre", "ouvre une NOUVELLE fenetre Retminal (aussi Ctrl+N)"),
             ("dynamic", "toute l'appli respire/s'anime (dynamic off = mode calme)"),
+            ("theme", "change les couleurs : vert, bleu, orange, rose, rouge, violet, cyan"),
             ("copy", "copie la sortie de la derniere commande (aussi: copier)"),
             ("clean", "nettoie les fichiers temporaires du PC (aussi: nettoyer)"),
             ("calc 19+3", "calculatrice (ou tape direct : 19 + 3)"),
@@ -5237,7 +5281,9 @@ class Retminal:
             rows.append({"text": "← Retour au menu", "fn": self._cfg_back})
         elif v == "style":
             cur = self._cfg_theme_name()
-            labels = {"vert": "Vert (hacker)", "bleu": "Bleu", "orange": "Orange (claude)"}
+            labels = {"vert": "Vert (hacker)", "bleu": "Bleu", "orange": "Orange (claude)",
+                      "rose": "Rose bonbon", "rouge": "Rouge sang",
+                      "violet": "Violet neon", "cyan": "Cyan glace"}
             for nm in THEMES:
                 mark = "   ← actuel" if nm == cur else ""
                 rows.append({"text": "🎨  " + labels.get(nm, nm) + mark, "fn": (lambda n=nm: self._cfg_apply_theme(n))})
@@ -8685,13 +8731,6 @@ class Retminal:
                 self._live_dot.config(fg=t["accent"])
             except Exception:
                 pass
-        if isinstance(self._scan, list):
-            for fr in self._scan:
-                try:
-                    fr.place_forget()
-                except Exception:
-                    pass
-
     def _ultra_tick(self):
         if not self.ultra_on:
             self._ultra_after = None
@@ -8702,10 +8741,15 @@ class Retminal:
                 return
         except Exception:
             pass
-        self._blink_ct += 1
-        if self._blink_ct >= 58:
-            self._blink_ct = 0
-            self._blink_mascot()
+        if self.running != self._last_running:
+            self._last_running = self.running
+            if not self.claude_mode and not self._sysmon_on:
+                self._apply_mascot(self._mascot_base())
+        if not self.running:
+            self._blink_ct += 1
+            if self._blink_ct >= 58:
+                self._blink_ct = 0
+                self._blink_mascot()
         self._ultra_phase = (self._ultra_phase + 0.045) % 1.0
         p = self._ultra_phase * 2.0
         if p > 1.0:
@@ -8731,19 +8775,6 @@ class Retminal:
                 self._live_dot.config(fg=self._blend(t["bg"], t["accent"], max(0.2, p)))
             except Exception:
                 pass
-        try:
-            if not isinstance(self._scan, list):
-                self._scan = [tk.Frame(self.container) for _ in range(3)]
-            w = self.container.winfo_width()
-            self._scan_x = (self._scan_x + 15) % (w + 280)
-            for fr, (off, wid, br) in zip(
-                self._scan, ((44, 44, 0.95), (84, 40, 0.55), (118, 34, 0.3))
-            ):
-                fr.config(bg=self._blend(t["bg"], t["accent"], br))
-                fr.place(x=self._scan_x - off, y=62, width=wid, height=3)
-                fr.lift()
-        except Exception:
-            pass
         self._ultra_after = self.root.after(55, self._ultra_tick)
 
     def _ultra_fade_in(self):
@@ -8774,31 +8805,32 @@ class Retminal:
         except Exception:
             pass
 
-    def _blink_mascot(self):
-        if self.claude_mode or self._sysmon_on:
-            return
+    def _apply_mascot(self, strips):
         imgs = self._mascot_imgs
-        blink = self._strips_blink
-        if not imgs or not blink:
+        if not imgs or not strips:
             return
         try:
             for i, nm in enumerate(imgs):
-                if i < len(blink):
-                    self.header.image_configure(nm, image=blink[i])
-            self.root.after(140, self._blink_open)
+                if i < len(strips):
+                    self.header.image_configure(nm, image=strips[i])
         except Exception:
             pass
 
-    def _blink_open(self):
-        imgs = self._mascot_imgs
-        if not imgs or not self._strips:
+    def _mascot_base(self):
+        if self.running and self._strips_happy:
+            return self._strips_happy
+        return self._strips
+
+    def _blink_mascot(self):
+        if self.claude_mode or self._sysmon_on or self.running:
             return
-        try:
-            for i, nm in enumerate(imgs):
-                if i < len(self._strips):
-                    self.header.image_configure(nm, image=self._strips[i])
-        except Exception:
-            pass
+        if not self._strips_blink:
+            return
+        self._apply_mascot(self._strips_blink)
+        self.root.after(140, self._blink_open)
+
+    def _blink_open(self):
+        self._apply_mascot(self._mascot_base())
 
     def cmd_dynamic(self, cmd):
         parts = cmd.split()
@@ -8812,6 +8844,26 @@ class Retminal:
             self._ultra_start()
             self._insert("  ⚡ Mode ULTRA DYNAMIQUE active !  Toute l'appli respire.\n", "bright")
         self._save_settings()
+        self._write_prompt()
+
+    def cmd_theme(self, cmd):
+        parts = cmd.split(maxsplit=1)
+        name = parts[1].strip().lower() if len(parts) > 1 else ""
+        if not name:
+            self._insert("  🎨 Themes dispo : " + ", ".join(THEMES.keys()) + "\n", "cyan")
+            self._insert("     Ex :  theme rose\n", "dim")
+            self._write_prompt()
+            return
+        if name not in THEMES:
+            self._insert("  Theme inconnu.  Choisis : " + ", ".join(THEMES.keys()) + "\n", "err")
+            self._write_prompt()
+            return
+        self.config_theme = name
+        self._save_settings()
+        if not self.claude_mode:
+            self._apply_theme(THEMES[name])
+            self._render_tabs()
+        self._insert("  🎨 Theme applique : " + name + " !\n", "bright")
         self._write_prompt()
 
     # ---- Coller des images (mode Claude) ----
