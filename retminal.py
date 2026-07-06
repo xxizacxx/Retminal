@@ -327,6 +327,8 @@ class Retminal:
         self._ultra_phase = 0.0
         self._active_tab_cell = None
         self._live_dot = None
+        self._scan = None
+        self._scan_x = 0
         self.pal = None
         self._pal_items = []
         self._pal_sel = 0
@@ -8220,6 +8222,12 @@ class Retminal:
     def _split_ants_tick(self):
         if not self.split_on:
             return
+        try:
+            if not self.root.winfo_viewable():
+                self._ants_after = self.root.after(250, self._split_ants_tick)
+                return
+        except Exception:
+            pass
         if self.ultra_on:
             self._ants_off = (self._ants_off + 2) % 10
         self._split_ants_draw()
@@ -8654,11 +8662,22 @@ class Retminal:
                 self._live_dot.config(fg=t["accent"])
             except Exception:
                 pass
+        if self._scan is not None:
+            try:
+                self._scan.place_forget()
+            except Exception:
+                pass
 
     def _ultra_tick(self):
         if not self.ultra_on:
             self._ultra_after = None
             return
+        try:
+            if not self.root.winfo_viewable():
+                self._ultra_after = self.root.after(250, self._ultra_tick)
+                return
+        except Exception:
+            pass
         self._ultra_phase = (self._ultra_phase + 0.045) % 1.0
         p = self._ultra_phase * 2.0
         if p > 1.0:
@@ -8684,6 +8703,16 @@ class Retminal:
                 self._live_dot.config(fg=self._blend(t["bg"], t["accent"], max(0.2, p)))
             except Exception:
                 pass
+        try:
+            if self._scan is None:
+                self._scan = tk.Frame(self.container, bg=t["accent"])
+            w = self.container.winfo_width()
+            self._scan_x = (self._scan_x + 13) % (w + 220)
+            self._scan.config(bg=self._blend(t["bg"], t["accent"], 0.85))
+            self._scan.place(x=self._scan_x - 110, y=62, width=110, height=2)
+            self._scan.lift()
+        except Exception:
+            pass
         self._ultra_after = self.root.after(55, self._ultra_tick)
 
     def _ultra_fade_in(self):
