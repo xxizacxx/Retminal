@@ -31,52 +31,64 @@ RETY_GREEN = (174, 255, 201, 255)
 RETY_TURQ = (94, 230, 210, 255)
 CLAWD_ORANGE = (216, 130, 95, 255)
 CREATURE_NORMAL = [
-    "...XXXXXXXXXXXX...",
-    "...XX.XXXXXX.XX...",
-    ".XXXXXXXXXXXXXXXX.",
-    "...XXXXXXXXXXXX...",
-    "....X.X....X.X....",
-    "..................",
+    "..X.....X..",
+    "...X...X...",
+    "..XXXXXXX..",
+    ".XX.XXX.XX.",
+    "XXXXXXXXXXX",
+    "X.XXXXXXX.X",
+    "X.X.....X.X",
+    "...XX.XX...",
 ]
-CREATURE_BLINK = [
-    "...XXXXXXXXXXXX...",
-    "...XXXXXXXXXXXX...",
-    ".XXXXXXXXXXXXXXXX.",
-    "...XXXXXXXXXXXX...",
-    "....X.X....X.X....",
-    "..................",
+CREATURE_WALK = [
+    "..X.....X..",
+    "X..X...X..X",
+    "X.XXXXXXX.X",
+    "XXX.XXX.XXX",
+    "XXXXXXXXXXX",
+    ".XXXXXXXXX.",
+    "..X.....X..",
+    ".X.......X.",
 ]
 CREATURE_HAPPY = [
-    "...XXXXXXXXXXXX...",
-    "...XX.XXXXXX.XX...",
-    ".XXX.X.XXXX.X.XXX.",
-    "...XXXXXXXXXXXX...",
-    "....X.X....X.X....",
-    "..................",
+    "..X.....X..",
+    "...X...X...",
+    "..X.XXX.X..",
+    ".X.X.X.X.X.",
+    "XXXXXXXXXXX",
+    "X.XXXXXXX.X",
+    "X.X.....X.X",
+    "...XX.XX...",
+]
+CREATURE_BLINK = [
+    "..X.....X..",
+    "...X...X...",
+    "..XXXXXXX..",
+    ".XXXXXXXXX.",
+    "XXXXXXXXXXX",
+    "X.XXXXXXX.X",
+    "X.X.....X.X",
+    "...XX.XX...",
 ]
 CREATURE_OOPS = [
-    "...XX.XXXXXX.XX...",
-    "...XX.XXXXXX.XX...",
-    ".XXXXXXXXXXXXXXXX.",
-    "...XXXXXXXXXXXX...",
-    "....X.X....X.X....",
-    "..................",
+    "..X.....X..",
+    "...X...X...",
+    "..X.XXX.X..",
+    ".XX.XXX.XX.",
+    "XXXXXXXXXXX",
+    "X.XXXXXXX.X",
+    "X.X.....X.X",
+    "...XX.XX...",
 ]
-CREATURE_LOOK_L = [
-    "...XXXXXXXXXXXX...",
-    "...X.XXXXXX.XXX...",
-    ".XXXXXXXXXXXXXXXX.",
-    "...XXXXXXXXXXXX...",
-    "....X.X....X.X....",
-    "..................",
-]
-CREATURE_LOOK_R = [
-    "...XXXXXXXXXXXX...",
-    "...XXX.XXXXXX.X...",
-    ".XXXXXXXXXXXXXXXX.",
-    "...XXXXXXXXXXXX...",
-    "....X.X....X.X....",
-    "..................",
+CREATURE_HOLD = [
+    "..X.....X..",
+    "...X...X.XX",
+    "..XXXXXXX.X",
+    ".XX.XXX.XX.",
+    "XXXXXXXXXXX",
+    "X.XXXXXXX.X",
+    "X.X.....X.X",
+    "...XX.XX...",
 ]
 
 THEME_GREEN = {
@@ -395,15 +407,18 @@ class Retminal:
         self._live_dot = None
         self._scan = None
         self._scan_x = 0
+        self._strips_walk = []
         self._strips_blink = []
         self._strips_happy = []
         self._strips_oops = []
-        self._strips_lookl = []
-        self._strips_lookr = []
+        self._strips_hold = []
+        self._clawd_walk = []
         self._clawd_happy = []
         self._mascot_imgs = []
         self._mascot_color = None
         self._mascot_busy = False
+        self._walk_frame = 0
+        self._walk_ct = 0
         self._blink_ct = 0
         self._last_running = False
         self.pal = None
@@ -1448,9 +1463,11 @@ class Retminal:
             for x, ch in enumerate(row):
                 if ch == "X":
                     pixels[x, y] = color
-        big = base.resize((gw * 5, gh * 9), Image.NEAREST)
+        sw = max(1, 90 // gw)
+        sh = max(1, 57 // gh)
+        big = base.resize((gw * sw, gh * sh), Image.NEAREST)
         canvas = Image.new("RGBA", (90, 57), (0, 0, 0, 0))
-        canvas.alpha_composite(big, ((90 - gw * 5) // 2, (57 - gh * 9) // 2))
+        canvas.alpha_composite(big, ((90 - gw * sw) // 2, (57 - gh * sh) // 2))
         return [
             ImageTk.PhotoImage(canvas.crop((0, i * 19, 90, i * 19 + 19)))
             for i in range(3)
@@ -1480,25 +1497,22 @@ class Retminal:
         try:
             col = self._rety_color()
             self._mascot_color = self._rety_theme_accent()
-            self._strips = self._creature_strips(CREATURE_NORMAL, col)
-            self._strips_blink = self._creature_strips(CREATURE_BLINK, col)
-            self._strips_happy = self._creature_strips(CREATURE_HAPPY, col)
-            self._strips_oops = self._creature_strips(CREATURE_OOPS, col)
-            self._strips_lookl = self._creature_strips(CREATURE_LOOK_L, col)
-            self._strips_lookr = self._creature_strips(CREATURE_LOOK_R, col)
-            self._clawd_strips = self._creature_strips(CREATURE_NORMAL, CLAWD_ORANGE)
-            self._clawd_happy = self._creature_strips(CREATURE_HAPPY, CLAWD_ORANGE)
-            self._carnet_mascot = self._creature_strips(CREATURE_NORMAL, RETY_TURQ)
+            cs = self._creature_strips
+            self._strips = cs(CREATURE_NORMAL, col)
+            self._strips_walk = cs(CREATURE_WALK, col)
+            self._strips_blink = cs(CREATURE_BLINK, col)
+            self._strips_happy = cs(CREATURE_HAPPY, col)
+            self._strips_oops = cs(CREATURE_OOPS, col)
+            self._strips_hold = cs(CREATURE_HOLD, col)
+            self._clawd_strips = cs(CREATURE_NORMAL, CLAWD_ORANGE)
+            self._clawd_walk = cs(CREATURE_WALK, CLAWD_ORANGE)
+            self._clawd_happy = cs(CREATURE_HAPPY, CLAWD_ORANGE)
+            self._carnet_mascot = cs(CREATURE_NORMAL, RETY_TURQ)
         except Exception:
-            self._strips = []
-            self._strips_blink = []
-            self._strips_happy = []
-            self._strips_oops = []
-            self._strips_lookl = []
-            self._strips_lookr = []
-            self._clawd_strips = []
-            self._clawd_happy = []
-            self._carnet_mascot = []
+            for a in ("_strips", "_strips_walk", "_strips_blink", "_strips_happy",
+                      "_strips_oops", "_strips_hold", "_clawd_strips", "_clawd_walk",
+                      "_clawd_happy", "_carnet_mascot"):
+                setattr(self, a, [])
 
     def _apply_theme(self, t):
         self.theme = t
@@ -8799,12 +8813,13 @@ class Retminal:
             self._mascot_busy = False
             self._apply_mascot(self._mascot_base())
         if not self.running and not self._mascot_busy:
-            self._blink_ct += 1
-            if self._blink_ct == 52:
+            self._walk_ct += 1
+            if self._walk_ct % 6 == 0:
+                self._walk_frame ^= 1
+                self._apply_mascot(self._strips_walk if self._walk_frame else self._strips)
+            if self._walk_ct >= 66:
+                self._walk_ct = 0
                 self._do_blink()
-            elif self._blink_ct >= 100:
-                self._blink_ct = 0
-                self._do_look()
         self._ultra_after = self.root.after(60, self._ultra_tick)
 
     def _ultra_fade_in(self):
@@ -8849,6 +8864,8 @@ class Retminal:
     def _mascot_base(self):
         if self.running and self._strips_happy:
             return self._strips_happy
+        if self._walk_frame and self._strips_walk:
+            return self._strips_walk
         return self._strips
 
     def _mascot_restore(self):
@@ -8862,30 +8879,20 @@ class Retminal:
         self._apply_mascot(self._strips_blink)
         self.root.after(130, self._mascot_restore)
 
-    def _do_look(self):
-        if not self._strips_lookl:
-            return
-        self._mascot_busy = True
-        self._apply_mascot(self._strips_lookl)
-
-        def to_right():
-            if self._mascot_busy:
-                self._apply_mascot(self._strips_lookr)
-        self.root.after(430, to_right)
-        self.root.after(880, self._mascot_restore)
-
     def _react_command_done(self, rc):
         if not self.ultra_on:
             return
         ok = rc in (None, 0)
         self._flash_border(self.theme["accent"] if ok else "#ff5a5a")
-        if not ok and self._strips_oops:
-            self._mascot_busy = True
+        self._mascot_busy = True
+        if ok and self._strips_hold:
+            self._apply_mascot(self._strips_hold)
+            self.root.after(650, self._mascot_restore)
+        elif not ok and self._strips_oops:
             self._apply_mascot(self._strips_oops)
             self.root.after(850, self._mascot_restore)
         else:
-            self._mascot_busy = False
-            self._apply_mascot(self._mascot_base())
+            self._mascot_restore()
 
     def _flash_border(self, color):
         self._flash_border_step(color, 7)
