@@ -595,7 +595,6 @@ class Retminal:
         self._active = 0
         self._load_user_commands()
         self._build_ui()
-        self._make_strips()
         if not self.claude_mode and self.config_theme in THEMES and self.config_theme != "vert":
             self._apply_theme(THEMES[self.config_theme])
         self._write_banner()
@@ -605,11 +604,20 @@ class Retminal:
         self._apply_keybinds()
         self.input_entry.focus_set()
         self._ultra_fade_in()
+        self.root.after(15, self._boot_mascot)
         self.root.after(80, self._init_win32)
         self.root.after(260, self._ultra_start)
         if IS_MAC:
             self.root.after(120, self._mac_grab_focus)
-        threading.Thread(target=self._scan_local_commands, daemon=True).start()
+        self.root.after(350, lambda: threading.Thread(
+            target=self._scan_local_commands, daemon=True).start())
+
+    def _boot_mascot(self):
+        try:
+            self._make_strips()
+            self._render_logo()
+        except Exception:
+            pass
 
     def _detect_encoding(self):
         if not IS_WIN:
