@@ -482,7 +482,9 @@ class Retminal:
         self._mascot_imgs = []
         self._mascot_color = None
         self._mascot_busy = False
-        self._walk_frame = 0
+        self._cs_yoff = 0
+        self._bob = []
+        self._bob_i = 0
         self._walk_ct = 0
         self._blink_ct = 0
         self._last_running = False
@@ -1576,11 +1578,12 @@ class Retminal:
                     pixels[x, y] = color
         ch = 3 * STRIP_H
         cw = getattr(self, "_strip_w", 90)
+        yoff = getattr(self, "_cs_yoff", 0)
         sw = max(1, cw // gw)
         sh = max(1, ch // gh)
         big = base.resize((gw * sw, gh * sh), Image.NEAREST)
         canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-        canvas.alpha_composite(big, ((cw - gw * sw) // 2, (ch - gh * sh) // 2))
+        canvas.alpha_composite(big, ((cw - gw * sw) // 2, (ch - gh * sh) // 2 + yoff))
         return [
             ImageTk.PhotoImage(canvas.crop((0, i * STRIP_H, cw, i * STRIP_H + STRIP_H)))
             for i in range(3)
@@ -1638,7 +1641,14 @@ class Retminal:
             self._clawd_walk = cs(CREATURE_WALK, CLAWD_ORANGE)
             self._clawd_happy = cs(CREATURE_HAPPY, CLAWD_ORANGE)
             self._carnet_mascot = cs(CREATURE_NORMAL, RETY_TURQ)
+            self._bob = []
+            for v in (0, -1, -2, -2, -1, 0, 1, 2, 2, 1):
+                self._cs_yoff = v
+                self._bob.append(cs(CREATURE_NORMAL, col))
+            self._cs_yoff = 0
         except Exception:
+            self._cs_yoff = 0
+            self._bob = []
             for a in ("_strips", "_strips_walk", "_strips_blink", "_strips_happy",
                       "_strips_oops", "_strips_hold", "_clawd_strips", "_clawd_walk",
                       "_clawd_happy", "_carnet_mascot"):
@@ -8892,14 +8902,14 @@ class Retminal:
             self._mascot_busy = False
             self._apply_mascot(self._mascot_base())
         if not self.running and not self._mascot_busy:
+            if self._bob:
+                self._bob_i = (self._bob_i + 1) % len(self._bob)
+                self._apply_mascot(self._bob[self._bob_i])
             self._walk_ct += 1
-            if self._walk_ct % 6 == 0:
-                self._walk_frame ^= 1
-                self._apply_mascot(self._strips_walk if self._walk_frame else self._strips)
-            if self._walk_ct >= 66:
+            if self._walk_ct >= 90:
                 self._walk_ct = 0
                 self._do_blink()
-        self._ultra_after = self.root.after(60, self._ultra_tick)
+        self._ultra_after = self.root.after(90, self._ultra_tick)
 
     def _ultra_fade_in(self):
         if not self.ultra_on:
@@ -8943,8 +8953,8 @@ class Retminal:
     def _mascot_base(self):
         if self.running and self._strips_happy:
             return self._strips_happy
-        if self._walk_frame and self._strips_walk:
-            return self._strips_walk
+        if self._bob:
+            return self._bob[self._bob_i]
         return self._strips
 
     def _mascot_restore(self):
