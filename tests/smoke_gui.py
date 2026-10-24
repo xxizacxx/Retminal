@@ -98,6 +98,26 @@ def script():
     app.input_entry.delete(0, "end")
     app._hide_suggestions()
     yield 0.3
+    root.geometry("1280x830")
+    yield 0.6
+    app._toggle_fullscreen()
+    yield 0.8
+    app._toggle_fullscreen()
+    yield 0.8
+    app._toggle_max()
+    yield 0.8
+    app._toggle_max()
+    yield 0.8
+    app._new_tab()
+    yield 0.5
+    app._close_tab(app._active)
+    yield 0.5
+    app._enter_claude_mode()
+    yield 0.8
+    app._exit_claude_mode()
+    yield 0.8
+    root.geometry("700x420")
+    yield 0.6
 
 
 steps = script()
@@ -110,7 +130,18 @@ def finish():
     root.destroy()
 
 
+def check_layout():
+    # la barre de saisie doit toujours etre visible (sauf en ecran partage)
+    root.update_idletasks()
+    bar = app.input_frame
+    if not app.split_on and (not bar.winfo_ismapped() or bar.winfo_height() < 10):
+        msg = f"barre de saisie invisible (taille {root.winfo_geometry()})"
+        if msg not in errors:
+            errors.append(msg)
+
+
 def tick():
+    check_layout()
     try:
         wait = next(steps)
     except StopIteration:

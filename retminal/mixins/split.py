@@ -521,8 +521,10 @@ class SplitMixin:
         self.proxy = None
         self._split_peer_snap = None
         self._split_side = 0
-        self.text.pack(side="top", fill="both", expand=True)
+        # meme ordre qu'au demarrage : la barre de saisie AVANT le texte, sinon le
+        # texte (qui demande toujours plus de hauteur) l'ecrase a 0 px
         self.input_frame.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+        self.text.pack(side="top", fill="both", expand=True)
         try:
             self.input_frame.config(highlightbackground=self.theme["dim"], highlightthickness=1)
         except Exception:
