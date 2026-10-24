@@ -100,13 +100,13 @@ Barres de progression et compatibilite :
 
 Pour le lancer (mode test) :
 ----------------------------
-  python retminal.py
+  python main.py      (ou : python -m retminal)
 
 Pour fabriquer le Retminal.exe (a double-cliquer) :
 ---------------------------------------------------
   Double-clique sur  build.bat
   Attends un peu...
-  Ton fichier sera dans le dossier :  dist\Retminal.exe
+  Ton fichier sera dans le dossier :  dist\Retminal\Retminal.exe
 
 Les commandes speciales de Retminal :
 -------------------------------------

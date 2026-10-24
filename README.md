@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/licence-MIT-brightgreen" alt="Licence MIT">
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python">
   <img src="https://img.shields.io/badge/OS-Windows%20%7C%20macOS-lightgrey" alt="Plateformes">
-  <img src="https://img.shields.io/badge/version-6.7%20(Ultra)-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-6.9%20(Ultra)-orange" alt="Version">
 </p>
 
 ![Retminal — écran d'accueil](docs/accueil.png)
@@ -19,7 +19,7 @@
 ## 🎯 C'est quoi ?
 
 **Retminal** est un terminal au style « hacker » (fond noir, texte vert qui brille) écrit en
-**Python + Tkinter**, dans **un seul fichier**. Par défaut il parle à **Ubuntu (WSL)** sur ton PC,
+**Python + Tkinter**, avec **un seul code** pour Windows et macOS. Par défaut il parle à **Ubuntu (WSL)** sur ton PC,
 donc tu tapes de **vraies commandes Linux** (`ls`, `cat`, `apt`, `python3`, `git`…). Il se connecte
 aussi en **SSH à ton serveur VPS**, et il embarque **Claude Code directement à l'intérieur**.
 
@@ -41,7 +41,7 @@ aussi en **SSH à ton serveur VPS**, et il embarque **Claude Code directement à
 - 💬 **Gestionnaire de conversations** — reprends une vieille discussion avec Claude
 - 🎨 **Markdown + couleurs `§`** — le `**gras**`, `*italique*`, `` `code` `` et les couleurs à la Minecraft s'affichent en vrai
 - 📂 **Aide à la saisie des chemins** — complétion 📁/📄 de fichiers/dossiers
-- 🎨 **3 thèmes** — vert (hacker), bleu, orange (Claude)
+- 🎨 **7 thèmes** — vert (hacker), bleu, orange (Claude), rose, rouge, violet, cyan
 
 ---
 
@@ -74,14 +74,14 @@ git clone https://github.com/xxizacxx/Retminal.git
 cd Retminal
 
 # 2. Installe les dépendances
-pip install paramiko pillow cryptography
+pip install -r requirements.txt
 
 # 3. Crée tes secrets : copie le modèle et mets TES infos
 #    (sur Mac le fichier s'appelle "secret.env")
 cp .env.example .env
 
 # 4. Lance !
-python retminal.py
+python main.py          # ou : python -m retminal
 ```
 
 Tape **`help`** pour voir toutes les commandes. 🎉
@@ -112,7 +112,48 @@ Tape **`help`** pour voir toutes les commandes. 🎉
 ## 🏗️ Fabriquer l'appli
 
 - **Windows** (`.exe`) : double-clique `build.bat` → le fichier apparaît dans `dist/`
-- **macOS** (`.dmg`) : le dossier [`Version-Mac/`](Version-Mac/) contient tout — lance `build_mac.command` **sur un Mac**
+- **macOS** (`.dmg`) : lance `build_mac.command` **sur un Mac** → `Retminal.dmg` (détails : [docs/LISEZ-MOI-MAC.txt](docs/LISEZ-MOI-MAC.txt))
+
+---
+
+## 🗂️ Structure du projet
+
+Un seul code pour **Windows et macOS** (les différences sont gérées par `IS_WIN` / `IS_MAC`).
+La grosse classe `Retminal` est découpée en **mixins** : un fichier par fonctionnalité.
+
+```
+main.py                  ← lanceur (python main.py)
+retminal/
+├── app.py               ← la classe Retminal (assemble les mixins) + main()
+├── system.py            ← plateforme, police embarquée, chemins des assets
+├── theme.py             ← couleurs, thèmes, sprites de Rety & Clawd
+├── userdata.py          ← dossier de l'appli, secret.env/.env, servers.json, alias
+├── helpers.py           ← regex, calcul sûr, crypto du coffre, parsing SSH
+└── mixins/
+    ├── window.py        ← fenêtre, barre de titre/statut, menus, plein écran
+    ├── output.py        ← écriture animée, emoji, markdown
+    ├── logo.py          ← en-têtes, mascotte, changement de thème
+    ├── prompt.py        ← prompt, validation, touches
+    ├── completion.py    ← suggestions, chemins, palette (Ctrl+R)
+    ├── shell.py         ← dispatch, shells locaux (zsh/bash, WSL, cmd, PowerShell), file d'attente
+    ├── stream.py        ← sortie en direct, ANSI, coloration syntaxique
+    ├── commands.py      ← commandes intégrées (help, calc, notes, ping…)
+    ├── claude.py        ← mode Claude Code, ask/explique, gestionnaire de conversations
+    ├── ssh.py           ← connexions SSH, serveurs, commandes distantes
+    ├── server.py        ← deploy, logs, moniteur serveur, sauvegardes
+    ├── editor.py        ← le carnet (éditeur)
+    ├── explorer.py      ← explorateur VPS
+    ├── config_page.py   ← page `config`
+    ├── settings.py      ← settings.json, raccourcis
+    ├── sysmon.py        ← moniteur système (`sysinfo`)
+    ├── tabs.py / split.py ← onglets, fenêtres, écran partagé
+    ├── effects.py       ← animations « ultra », réactions de Rety
+    ├── images.py        ← coller une image pour Claude
+    └── vault.py         ← coffre-fort de mots de passe
+assets/                  ← icônes + police DejaVu Sans Mono
+```
+
+Pour contribuer : `pip install ruff` puis `ruff check . && ruff format .`
 
 ---
 

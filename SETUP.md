@@ -1,6 +1,6 @@
 # 🛠️ SETUP — Installer Retminal de zéro
 
-Ce guide explique comment installer **Retminal** sur un PC tout neuf : Claude Code, les dépendances, le fichier `.env`, lancer, compiler. Suis les étapes dans l'ordre.
+Ce guide explique comment installer **Retminal** sur un PC tout neuf : Claude Code, les dépendances, le fichier `secret.env`, lancer, compiler. Suis les étapes dans l'ordre.
 
 > Le user a 10 ans : c'est écrit simple. Mais c'est complet.
 
@@ -46,7 +46,7 @@ claude --version
 
 ## 2. 🔑 Connecter Claude Code (le token)
 
-Retminal parle à Claude Code **tout seul** (commande `claude` dans Retminal). Pour ça il a besoin d'un **token** (une clé secrète) dans le fichier `.env`.
+Retminal parle à Claude Code **tout seul** (commande `claude` dans Retminal). Pour ça il a besoin d'un **token** (une clé secrète) dans le fichier `secret.env`.
 
 Génère le token (ça ouvre le navigateur pour te connecter) :
 ```bash
@@ -54,7 +54,7 @@ claude setup-token
 ```
 Ça affiche un token qui commence par `sk-ant-oat01-...`. **Copie-le.**
 
-Puis mets-le dans `.env` (voir l'étape 4) :
+Puis mets-le dans `secret.env` (voir l'étape 4) :
 ```
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-colle-ton-token-ici
 ```
@@ -78,9 +78,11 @@ Puis **dans** la session, tape :
 
 ---
 
-## 4. 📄 Le fichier `.env` (tes secrets)
+## 4. 📄 Le fichier `secret.env` (tes secrets)
 
-Crée un fichier `.env` dans le dossier de Retminal, avec **tes** infos (remplace les `...`). Exemple :
+> 🍎 Sur **Mac**, le fichier s'appelle `secret.env` (et **pas** `.env`) : un nom qui commence par un point est **caché** dans le Finder, alors que `secret.env` est **visible**. Retminal lit aussi un vieux `.env` si jamais tu en as un.
+
+Crée un fichier `secret.env` dans le dossier de Retminal, avec **tes** infos (remplace les `...`). Exemple :
 ```ini
 # --- Ton serveur VPS ---
 VPS_HOST=1.2.3.4
@@ -91,7 +93,7 @@ VPS_PASSWORD=ton-mot-de-passe
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
 ```
 
-> 🔒 Le `.env` ne se partage **JAMAIS** (il a tes mots de passe). Il reste sur ton PC.
+> 🔒 Le `secret.env` ne se partage **JAMAIS** (il a tes mots de passe). Il reste sur ton PC.
 
 `servers.json` et `customcommands.json` utilisent ces secrets sans les écrire en clair (avec des tokens `ENV§§.env:VPS_HOST`). Tu peux tout régler sans toucher aux fichiers avec la commande **`config`** dans Retminal.
 
@@ -101,7 +103,7 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
 
 Dans le dossier de Retminal :
 ```bash
-pip install paramiko pillow cryptography
+pip install -r requirements.txt
 ```
 - **paramiko** = le SSH (connexion VPS)
 - **pillow** = les images / la mascotte Rety
@@ -114,7 +116,7 @@ pip install paramiko pillow cryptography
 ## 6. ▶️ Lancer Retminal
 
 ```bash
-python retminal.py
+python main.py        # ou : python -m retminal
 ```
 Tape **`help`** pour voir toutes les commandes. 🎉
 
@@ -132,12 +134,12 @@ Le `.exe` apparaît dans le dossier `dist/`.
 
 ## 8. 🍎 Fabriquer la version Mac (`.dmg`)
 
-Le code Mac est prêt dans le dossier **`Version-Mac/`**. **Sur un Mac** :
-1. Copie le dossier `Version-Mac` sur le Mac.
-2. Double-clique **`build_mac.command`**.
+Le **même code** marche sur Windows et Mac. **Sur un Mac** :
+1. Copie le dossier Retminal sur le Mac.
+2. Double-clique **`build_mac.command`** (ou `bash build_mac.command` dans le Terminal).
 3. Tu obtiens `Retminal.dmg`.
 
-(Détails complets dans `Version-Mac/LISEZ-MOI-MAC.txt`.)
+(Détails complets dans `docs/LISEZ-MOI-MAC.txt`.)
 
 ---
 
@@ -146,13 +148,13 @@ Le code Mac est prêt dans le dossier **`Version-Mac/`**. **Sur un Mac** :
 | Étape | Commande |
 |-------|----------|
 | Installer Claude Code | `npm install -g @anthropic-ai/claude-code` |
-| Générer le token | `claude setup-token` → dans `.env` |
+| Générer le token | `claude setup-token` → dans `secret.env` |
 | Se connecter (à la main) | `claude` |
 | Installer superpowers | `/plugin install superpowers@claude-plugins-official` (dans `claude`) |
-| Dépendances Python | `pip install paramiko pillow cryptography` |
-| Lancer Retminal | `python retminal.py` |
+| Dépendances Python | `pip install -r requirements.txt` |
+| Lancer Retminal | `python main.py` |
 | Compiler (Windows) | `build.bat` |
-| Compiler (Mac) | `Version-Mac/build_mac.command` (sur le Mac) |
+| Compiler (Mac) | `build_mac.command` (sur le Mac) |
 
 ---
 

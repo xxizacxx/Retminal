@@ -66,7 +66,7 @@ $PY -m venv --clear .venv-build || { echo "  [X] venv impossible"; exit 1; }
 source .venv-build/bin/activate
 pip install --upgrade pip >/dev/null
 echo "  [..] Installation de PyInstaller + Pillow + paramiko + cryptography..."
-pip install pyinstaller pillow paramiko cryptography || { echo "  [X] pip a echoue"; exit 1; }
+pip install pyinstaller -r requirements.txt || { echo "  [X] pip a echoue"; exit 1; }
 
 # --- 3. Construire Retminal.app -------------------------------------
 echo "  [..] Construction de Retminal.app ..."
@@ -75,14 +75,14 @@ ADD=()
 for f in servers.json customcommands.json secret.env .env; do
   [ -f "$f" ] && ADD+=(--add-data "$f:.")
 done
-# Police DejaVu Sans Mono embarquee (cadres parfaits, sans trous, sur Mac)
-[ -f fonts/DejaVuSansMono.ttf ] && ADD+=(--add-data "fonts/DejaVuSansMono.ttf:fonts")
+# Icones + police DejaVu Sans Mono embarquee (cadres parfaits, sans trous, sur Mac)
+ADD+=(--add-data "assets:assets")
 # Icone de l'appli (sinon = icone Python par defaut, moche)
 ICON=()
-[ -f Retminal.icns ] && ICON=(--icon Retminal.icns)
+[ -f assets/Retminal.icns ] && ICON=(--icon assets/Retminal.icns)
 pyinstaller --noconfirm --windowed --name Retminal \
   "${ICON[@]}" "${ADD[@]}" \
-  retminal.py || { echo "  [X] PyInstaller a echoue"; exit 1; }
+  main.py || { echo "  [X] PyInstaller a echoue"; exit 1; }
 
 APP="dist/Retminal.app"
 if [ ! -d "$APP" ]; then

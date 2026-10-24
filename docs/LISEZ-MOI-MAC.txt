@@ -13,7 +13,7 @@ IMPORTANT (a lire) :
 ------------------------------------------------------------
   ETAPE 1 — Mettre ce dossier sur le Mac
 ------------------------------------------------------------
-Copie TOUT le dossier "Version-Mac" sur le Mac
+Copie TOUT le dossier "Retminal" sur le Mac
 (cle USB, AirDrop, Google Drive... comme tu veux).
 
 
@@ -35,9 +35,9 @@ Le plus simple : telecharge "macOS 64-bit universal2 installer" ici :
   Le plus simple : passe par le Terminal (pas de permission a gerer).
 
   1. Ouvre l'app  Terminal  (Spotlight: tape "Terminal").
-  2. Tape  cd  puis un ESPACE, puis GLISSE le dossier "Version-Mac"
+  2. Tape  cd  puis un ESPACE, puis GLISSE le dossier "Retminal"
      dans la fenetre du Terminal, et appuie sur Entree.
-        (ca donne un truc comme : cd /Users/toi/.../Version-Mac )
+        (ca donne un truc comme : cd /Users/toi/.../Retminal )
   3. Tape :  bash build_mac.command   et appuie sur Entree.
 
   -> "bash" n'a PAS besoin de la permission. Ca lance le build direct.
@@ -94,5 +94,5 @@ LIMITE / pas encore sur Mac :
   - Le bouton "reduire" peut ne rien faire (fenetre sans bordure).
 
 Si tu trouves un bug : note la commande + le message d'erreur
-et donne-les moi, je corrige dans Version-Mac (jamais ton Windows).
+et donne-les moi, je corrige (le meme code sert a Mac et Windows).
 ============================================================

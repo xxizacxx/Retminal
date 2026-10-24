@@ -6,12 +6,12 @@ echo ============================================
 echo.
 
 echo Verification des modules necessaires...
-pip install pyinstaller paramiko pillow cryptography
+pip install pyinstaller -r requirements.txt
 echo.
 
 REM --onedir = lancement QUASI INSTANTANE (avant, --onefile decompressait
 REM tout dans un dossier temporaire a CHAQUE lancement -> ~10 secondes).
-pyinstaller --noconfirm --onedir --noconsole --name Retminal --icon "Retminal.ico" --add-data "Retminal.ico;." --add-data "Retminal_icone.png;." retminal.py
+pyinstaller --noconfirm --onedir --noconsole --name Retminal --icon "assets\Retminal.ico" --add-data "assets;assets" main.py
 
 echo.
 echo Mets ton fichier secret.env dans le dossier  dist\Retminal\  (a cote de Retminal.exe) !

@@ -1,0 +1,45 @@
+[project]
+name = "retminal"
+version = "6.9"
+description = "Terminal « hacker » en Python/Tkinter, avec Claude Code intégré, SSH/VPS, éditeur et moniteur système."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "xxizacxx" }]
+requires-python = ">=3.10"
+dependencies = ["paramiko", "pillow", "cryptography"]
+
+[project.optional-dependencies]
+build = ["pyinstaller"]
+dev = ["ruff"]
+
+[project.scripts]
+retminal = "retminal.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["retminal", "retminal.mixins"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4"]
+ignore = [
+    "E501",    # quelques longues chaines de texte d'aide
+    "E731",    # lambdas courtes assignees (callbacks Tk)
+    "B023",    # lambdas Tk dans des boucles : variables liees via des defauts
+    "SIM105",  # try/except/pass est l'idiome de l'appli autour de Tk
+    "SIM102",
+    "SIM108",
+    "SIM114",
+    "SIM113",
+    "SIM115",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["retminal"]
