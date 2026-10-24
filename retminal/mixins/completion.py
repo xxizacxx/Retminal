@@ -13,6 +13,19 @@ class CompletionMixin:
     """Suggestion popup, path completion and the command palette."""
 
     _CMD_DESC = {
+        "split": "ecran partage (2 onglets)",
+        "splitscreen": "ecran partage (2 onglets)",
+        "fenetre": "ouvre une nouvelle fenetre",
+        "fenêtre": "ouvre une nouvelle fenetre",
+        "window": "ouvre une nouvelle fenetre",
+        "newwindow": "ouvre une nouvelle fenetre",
+        "theme": "change les couleurs",
+        "couleur": "change les couleurs",
+        "dynamic": "animations ultra on/off",
+        "dynamique": "animations ultra on/off",
+        "raccourci": "raccourcis clavier perso",
+        "raccourcis": "raccourcis clavier perso",
+        "keybind": "raccourcis clavier perso",
         "plein": "plein ecran (F11)",
         "fullscreen": "plein ecran (F11)",
         "palette": "palette de commandes (Ctrl+R)",

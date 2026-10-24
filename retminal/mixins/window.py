@@ -336,7 +336,7 @@ class WindowMixin:
             wrap="none",
             padx=12,
             pady=10,
-            height=6,
+            height=5,
             takefocus=0,
         )
         for _n, _c in (

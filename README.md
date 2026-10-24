@@ -111,6 +111,12 @@ Tape **`help`** pour voir toutes les commandes. 🎉
 
 ## 🏗️ Fabriquer l'appli
 
+**Automatique (GitHub Actions)** : pousse un tag (`git tag v6.9 && git push origin v6.9`) →
+GitHub fabrique `Retminal-macos.dmg` et `Retminal-windows.zip` et les met dans une **Release**.
+(Ou onglet *Actions* → *Build* → *Run workflow* pour juste tester la fabrication.)
+
+**À la main** :
+
 - **Windows** (`.exe`) : double-clique `build.bat` → le fichier apparaît dans `dist/`
 - **macOS** (`.dmg`) : lance `build_mac.command` **sur un Mac** → `Retminal.dmg` (détails : [docs/LISEZ-MOI-MAC.txt](docs/LISEZ-MOI-MAC.txt))
 
